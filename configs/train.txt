@@ -1,0 +1,18 @@
+auto_gpu_config = 1
+debug = 0
+max_episode_length = 1000 #1000 for default
+
+
+train_local = 0
+train_slam = 0
+train_global = 1
+use_nslam = 0
+
+load_local = pretrained_models/model_best.local
+load_slam = pretrained_models/model_best.slam
+
+noisy_odometry = 0
+collision_threshold = 0.001
+
+dump_location = results/
+exp_name = train_july9

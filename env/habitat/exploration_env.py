@@ -21,16 +21,19 @@ import matplotlib.pyplot as plt
 
 import habitat
 from habitat import logger
+from habitat.sims.habitat_simulator.actions import HabitatSimActions
 
 from env.utils.map_builder import MapBuilder
 from env.utils.fmm_planner import FMMPlanner
 
-from env.habitat.utils.noisy_actions import CustomActionSpaceConfiguration
+#from env.habitat.utils.noisy_actions import CustomActionSpaceConfiguration # this is not used anywhere
 import env.habitat.utils.pose as pu
 import env.habitat.utils.visualizations as vu
 from env.habitat.utils.supervision import HabitatMaps
 
 from model import get_grid
+
+import omegaconf
 
 
 def _preprocess_depth(depth):
@@ -43,7 +46,8 @@ def _preprocess_depth(depth):
 
     mask1 = depth == 0
     depth[mask1] = np.NaN
-    depth = depth*1000.
+    #depth = depth*1000. 
+    depth = depth*100.
     return depth
 
 
@@ -56,34 +60,39 @@ class Exploration_Env(habitat.RLEnv):
             self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
                                                 facecolor="whitesmoke",
                                                 num="Thread {}".format(rank))
-
         self.args = args
         self.num_actions = 3
         self.dt = 10
 
         self.rank = rank
 
-        self.sensor_noise_fwd = \
-                pickle.load(open("noise_models/sensor_noise_fwd.pkl", 'rb'))
-        self.sensor_noise_right = \
-                pickle.load(open("noise_models/sensor_noise_right.pkl", 'rb'))
-        self.sensor_noise_left = \
-                pickle.load(open("noise_models/sensor_noise_left.pkl", 'rb'))
+        # self.sensor_noise_fwd = \
+        #         pickle.load(open("noise_models/sensor_noise_fwd.pkl", 'rb'))
+        # self.sensor_noise_right = \
+        #         pickle.load(open("noise_models/sensor_noise_right.pkl", 'rb'))
+        # self.sensor_noise_left = \
+        #         pickle.load(open("noise_models/sensor_noise_left.pkl", 'rb'))
 
-        habitat.SimulatorActions.extend_action_space("NOISY_FORWARD")
-        habitat.SimulatorActions.extend_action_space("NOISY_RIGHT")
-        habitat.SimulatorActions.extend_action_space("NOISY_LEFT")
+        # HabitatSimActions.extend_action_space("NOISY_FORWARD")
+        # HabitatSimActions.extend_action_space("NOISY_RIGHT")
+        # HabitatSimActions.extend_action_space("NOISY_LEFT")
 
-        config_env.defrost()
-        config_env.SIMULATOR.ACTION_SPACE_CONFIG = \
-                "CustomActionSpaceConfiguration"
-        config_env.freeze()
+        # omegaconf.OmegaConf.set_readonly(config_env, True)
+        # config_env.SIMULATOR.ACTION_SPACE_CONFIG = \
+        # z        "CustomActionSpaceConfiguration"
+        # omegaconf.OmegaConf.set_readonly(config_env, False)
 
-
+        """
+            initialize parent class RLEnv 
+            _env and habitat_env are the same properties, see RLENv source code:
+            @property
+            def habitat_env(self) -> Env:
+                return self._env
+        """
         super().__init__(config_env, dataset)
 
-        self.action_space = gym.spaces.Discrete(self.num_actions)
-
+        #self.action_space = gym.spaces.Discrete(self.num_actions)
+        self.original_action_space = self.action_space
         self.observation_space = gym.spaces.Box(0, 255,
                                                 (3, args.frame_height,
                                                     args.frame_width),
@@ -98,6 +107,8 @@ class Exploration_Env(habitat.RLEnv):
                                       interpolation = Image.NEAREST)])
         self.scene_name = None
         self.maps_dict = {}
+        self.accumulated_ratio = 0
+
 
     def randomize_env(self):
         self._env._episode_iterator._shuffle_iterator()
@@ -125,13 +136,24 @@ class Exploration_Env(habitat.RLEnv):
 
 
     def reset(self):
+        """
+            called for the initial set up in main.py
+            habitat.VectorEnv will call reset when done=True
+            @return info:
+            -'sensor_pose': change between current ad lost pose
+            -'gt_pose': x(m), y(m), o (deg)
+        """
         args = self.args
         self.episode_no += 1
         self.timestep = 0
         self._previous_action = None
         self.trajectory_states = []
-
-        if args.randomize_env_every > 0:
+        self.accumulated_ratio = 0
+        
+        # shuffle into a different episode
+        # episodes are loaded from task dataset like pointnav_gibson_v1
+        # an episode includes initial position and rotation of agent, scene id, episode_id
+        if args.randomize_env_every > 0: 
             if np.mod(self.episode_no, args.randomize_env_every) == 0:
                 self.randomize_env()
 
@@ -142,6 +164,10 @@ class Exploration_Env(habitat.RLEnv):
             full_map_size = args.map_size_cm//args.map_resolution
             self.explorable_map = self._get_gt_map(full_map_size)
         self.prev_explored_area = 0.
+        if self.args.debug:
+            plt.figure()
+            plt.imshow(self.explorable_map, cmap='viridis')
+            plt.savefig('./debug/explorable_map.png')
 
         # Preprocess observations
         rgb = obs['rgb'].astype(np.uint8)
@@ -149,7 +175,9 @@ class Exploration_Env(habitat.RLEnv):
         if self.args.frame_width != self.args.env_frame_width:
             rgb = np.asarray(self.res(rgb))
         state = rgb.transpose(2, 0, 1)
-        depth = _preprocess_depth(obs['depth'])
+        #TODO
+        #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
+        depth = obs['depth'][:, :, 0] * 100 # m to cm 
 
         # Initialize map and pose
         self.map_size_cm = args.map_size_cm
@@ -161,17 +189,24 @@ class Exploration_Env(habitat.RLEnv):
         self.last_loc = self.curr_loc
         self.last_sim_location = self.get_sim_location()
 
-        # Convert pose to cm and degrees for mapper
+        # Convert pose to cm and radians for mapper
         mapper_gt_pose = (self.curr_loc_gt[0]*100.0,
                           self.curr_loc_gt[1]*100.0,
                           np.deg2rad(self.curr_loc_gt[2]))
 
         # Update ground_truth map and explored area
+        # return agent_view_cropped, map_gt, agent_view_explored, explored_gt
         fp_proj, self.map, fp_explored, self.explored_map = \
             self.mapper.update_map(depth, mapper_gt_pose)
+        
+        if self.args.debug:
+            plt.figure()
+            plt.imshow(self.explorable_map*3 + self.explored_map, cmap='viridis') # multiply with a random scalar to get three colors
+            plt.savefig('./debug/explore_overlap.png')
 
         # Initialize variables
-        self.scene_name = self.habitat_env.sim.config.SCENE
+        self.scene_name = self.habitat_env.current_episode.scene_id \
+                            .split('/')[-1].split('.')[0]
         self.visited = np.zeros(self.map.shape)
         self.visited_vis = np.zeros(self.map.shape)
         self.visited_gt = np.zeros(self.map.shape)
@@ -185,36 +220,48 @@ class Exploration_Env(habitat.RLEnv):
             'fp_explored': fp_explored,
             'sensor_pose': [0., 0., 0.],
             'pose_err': [0., 0., 0.],
+            'map': self.map,
+            'explored_map': self.explorable_map,
+            'gt_pose': [self.curr_loc_gt[0],
+                        self.curr_loc_gt[1],
+                        self.curr_loc_gt[2]]
         }
 
         self.save_position()
 
         return state, self.info
 
-    def step(self, action):
 
+    def step(self, action):
+        """
+            @return info:
+            -'sensor_pose': change between current ad lost pose
+            -'gt_pose': x(m), y(m), o (deg)
+        """
         args = self.args
         self.timestep += 1
 
         # Action remapping
         if action == 2: # Forward
-            action = 1
-            noisy_action = habitat.SimulatorActions.NOISY_FORWARD
+            action = 'move_forward'
+            #noisy_action = HabitatSimActions.NOISY_FORWARD
         elif action == 1: # Right
-            action = 3
-            noisy_action = habitat.SimulatorActions.NOISY_RIGHT
+            action = 'turn_right'
+            #noisy_action = HabitatSimActions.NOISY_RIGHT
         elif action == 0: # Left
-            action = 2
-            noisy_action = habitat.SimulatorActions.NOISY_LEFT
+            action = 'turn_left'
+            #noisy_action = HabitatSimActions.NOISY_LEFT
 
         self.last_loc = np.copy(self.curr_loc)
         self.last_loc_gt = np.copy(self.curr_loc_gt)
         self._previous_action = action
 
-        if args.noisy_actions:
-            obs, rew, done, info = super().step(noisy_action)
-        else:
-            obs, rew, done, info = super().step(action)
+        # if args.noisy_actions:
+        #     print(f'noisy_action = {noisy_action}')
+        #     obs, rew, done, info = super().step(noisy_action)
+        # else:
+        #     obs, rew, done, info = super().step(action)
+        obs, rew, done, info = super().step(action)
 
         # Preprocess observations
         rgb = obs['rgb'].astype(np.uint8)
@@ -224,7 +271,9 @@ class Exploration_Env(habitat.RLEnv):
 
         state = rgb.transpose(2, 0, 1)
 
-        depth = _preprocess_depth(obs['depth'])
+        #TODO
+        #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
+        depth = obs['depth'][:, :, 0] * 100 # m to cm 
 
         # Get base sensor and ground-truth pose
         dx_gt, dy_gt, do_gt = self.get_gt_pose_change()
@@ -241,19 +290,20 @@ class Exploration_Env(habitat.RLEnv):
             self.curr_loc = self.curr_loc_gt
             dx_base, dy_base, do_base = dx_gt, dy_gt, do_gt
 
-        # Convert pose to cm and degrees for mapper
+        # Convert pose to cm and rads for mapper
         mapper_gt_pose = (self.curr_loc_gt[0]*100.0,
                           self.curr_loc_gt[1]*100.0,
                           np.deg2rad(self.curr_loc_gt[2]))
 
 
         # Update ground_truth map and explored area
+        # return agent_view_cropped, map_gt, agent_view_explored, explored_gt
         fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
 
 
         # Update collision map
-        if action == 1:
+        if action == 'move_forward': 
             x1, y1, t1 = self.last_loc
             x2, y2, t2 = self.curr_loc
             if abs(x1 - x2)< 0.05 and abs(y1 - y2) < 0.05:
@@ -284,16 +334,20 @@ class Exploration_Env(habitat.RLEnv):
         self.info['time'] = self.timestep
         self.info['fp_proj'] = fp_proj
         self.info['fp_explored']= fp_explored
+        self.info['map'] = self.map,
+        self.info['explored_map'] = self.explorable_map,
         self.info['sensor_pose'] = [dx_base, dy_base, do_base]
         self.info['pose_err'] = [dx_gt - dx_base,
                                  dy_gt - dy_base,
                                  do_gt - do_base]
-
-
+        self.info['gt_pose'] = [self.curr_loc_gt[0],
+                                self.curr_loc_gt[1],
+                                self.curr_loc_gt[2]]
         if self.timestep%args.num_local_steps==0:
             area, ratio = self.get_global_reward()
-            self.info['exp_reward'] = area
-            self.info['exp_ratio'] = ratio
+            self.info['exp_reward'] = area # area per step, no accumulated
+            self.info['exp_ratio'] = ratio # ratio per step, no accumulated
+            self.accumulated_ratio += ratio
         else:
             self.info['exp_reward'] = None
             self.info['exp_ratio'] = None
@@ -348,6 +402,7 @@ class Exploration_Env(habitat.RLEnv):
 
     def build_mapper(self):
         params = {}
+        params['debug'] = self.args.debug
         params['frame_width'] = self.args.env_frame_width
         params['frame_height'] = self.args.env_frame_height
         params['fov'] =  self.args.hfov
@@ -355,13 +410,13 @@ class Exploration_Env(habitat.RLEnv):
         params['map_size_cm'] = self.args.map_size_cm
         params['agent_min_z'] = 25
         params['agent_max_z'] = 150
-        params['agent_height'] = self.args.camera_height * 100
+        params['agent_height'] = self.args.camera_height * 100 # in cm
         params['agent_view_angle'] = 0
         params['du_scale'] = self.args.du_scale
         params['vision_range'] = self.args.vision_range
         params['visualize'] = self.args.visualize
         params['obs_threshold'] = self.args.obs_threshold
-        self.selem = skimage.morphology.disk(self.args.obstacle_boundary /
+        self.selem = skimage.morphology.disk(self.args.obstacle_boundary /\
                                              self.args.map_resolution)
         mapper = MapBuilder(params)
         return mapper
@@ -406,7 +461,6 @@ class Exploration_Env(habitat.RLEnv):
 
 
     def get_short_term_goal(self, inputs):
-
         args = self.args
 
         # Get Map prediction
@@ -531,7 +585,7 @@ class Exploration_Env(habitat.RLEnv):
         if args.visualize or args.print_images:
             dump_dir = "{}/dump/{}/".format(args.dump_location,
                                                 args.exp_name)
-            ep_dir = '{}/episodes/{}/{}/'.format(
+            ep_dir = '{}/thread_{}/ep_{}/'.format(
                             dump_dir, self.rank+1, self.episode_no)
             if not os.path.exists(ep_dir):
                 os.makedirs(ep_dir)
@@ -542,9 +596,10 @@ class Exploration_Env(habitat.RLEnv):
                                 self.visited_vis[gx1:gx2, gy1:gy2],
                                 self.visited_gt[gx1:gx2, gy1:gy2],
                                 goal,
+                                stg,
                                 self.explored_map[gx1:gx2, gy1:gy2],
                                 self.explorable_map[gx1:gx2, gy1:gy2],
-                                self.map[gx1:gx2, gy1:gy2] *
+                                self.map[gx1:gx2, gy1:gy2] *\
                                     self.explored_map[gx1:gx2, gy1:gy2])
                 vis_grid = np.flipud(vis_grid)
                 vu.visualize(self.figure, self.ax, self.obs, vis_grid[:,:,::-1],
@@ -556,7 +611,7 @@ class Exploration_Env(habitat.RLEnv):
                              start_o_gt),
                             dump_dir, self.rank, self.episode_no,
                             self.timestep, args.visualize,
-                            args.print_images, args.vis_type)
+                            args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
 
             else: # Visualize ground-truth map and pose
                 vis_grid = vu.get_colored_map(self.map,
@@ -564,6 +619,7 @@ class Exploration_Env(habitat.RLEnv):
                                 self.visited_gt,
                                 self.visited_gt,
                                 (goal[0]+gx1, goal[1]+gy1),
+                                stg,
                                 self.explored_map,
                                 self.explorable_map,
                                 self.map*self.explored_map)
@@ -573,12 +629,15 @@ class Exploration_Env(habitat.RLEnv):
                             (start_x_gt, start_y_gt, start_o_gt),
                             dump_dir, self.rank, self.episode_no,
                             self.timestep, args.visualize,
-                            args.print_images, args.vis_type)
+                            args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
 
         return output
 
     def _get_gt_map(self, full_map_size):
-        self.scene_name = self.habitat_env.sim.config.SCENE
+        #self.scene_name = self.habitat_env.sim.config.scene
+        #print(self.habitat_env.sim.config)
+        self.scene_name = self.habitat_env.current_episode.scene_id \
+                            .split('/')[-1].split('.')[0]
         logger.error('Computing map for %s', self.scene_name)
 
         # Get map in habitat simulator coordinates
@@ -630,8 +689,8 @@ class Exploration_Env(habitat.RLEnv):
 
         grid_map = torch.from_numpy(grid_map).float()
         grid_map = grid_map.unsqueeze(0).unsqueeze(0)
-        translated = F.grid_sample(grid_map, trans_mat)
-        rotated = F.grid_sample(translated, rot_mat)
+        translated = F.grid_sample(grid_map, trans_mat, align_corners=True)
+        rotated = F.grid_sample(translated, rot_mat, align_corners=True)
 
         episode_map = torch.zeros((full_map_size, full_map_size)).float()
         if full_map_size > grid_size:

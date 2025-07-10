@@ -26,8 +26,8 @@ if sys.platform == 'darwin':
     matplotlib.use("tkagg")
 import matplotlib.pyplot as plt
 
-# plt.ion()
-# fig, ax = plt.subplots(1,4, figsize=(10, 2.5), facecolor="whitesmoke")
+from tqdm import trange
+from torch.utils.tensorboard import SummaryWriter
 
 
 args = get_args()
@@ -66,7 +66,7 @@ def main():
     # Setup Logging
     log_dir = "{}/models/{}/".format(args.dump_location, args.exp_name)
     dump_dir = "{}/dump/{}/".format(args.dump_location, args.exp_name)
-
+    
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 
@@ -80,10 +80,13 @@ def main():
     print(args)
     logging.info(args)
 
+    # Setup tensorboard 
+    writer = SummaryWriter("{}/tensorboard/{}/".format(args.dump_location, args.exp_name))
+
     # Logging and loss variables
     num_scenes = args.num_processes
     num_episodes = int(args.num_episodes)
-    device = args.device = torch.device("cuda:0" if args.cuda else "cpu")
+    device = args.device  
     policy_loss = 0
 
     best_cost = 100000
@@ -113,11 +116,31 @@ def main():
     per_step_g_rewards = deque(maxlen=1000)
 
     g_process_rewards = np.zeros((num_scenes))
+    accumulated_ratio = np.zeros((num_scenes))
+ 
+    episode_area_coverage = deque(maxlen=1000)
+    per_step_area_coverage = deque(maxlen=1000)
 
     # Starting environments
     torch.set_num_threads(1)
+    """ 
+        create envs
+        all the 'computing map for test', semantic warning, 
+        optional features, and plugin manager warnings come from here 
+    """
     envs = make_vec_envs(args)
+    """ 
+        call reset() method of Exploration_Env() class for each process
+        where: env/habitat/exploration_env.py
+        what: randomize episode, get gt map, initialize explored area, curr_loc etc
+        stuffs: will call _get_gt_map(). give message 'Computing map for '
+    """
     obs, infos = envs.reset()
+
+    if args.debug:
+        plt.imshow(np.uint8(np.transpose(obs.cpu().numpy()[0,:,:,:], (1,2,0))))
+        plt.savefig('./debug/obs_in_main.png')
+
 
     # Initialize map variables
     ### Full map consists of 4 channels containing the following:
@@ -138,7 +161,9 @@ def main():
     full_map = torch.zeros(num_scenes, 4, full_w, full_h).float().to(device)
     local_map = torch.zeros(num_scenes, 4, local_w, local_h).float().to(device)
 
-    # Initial full and local pose
+    # Initial full and local pose. pose (x, y, o)
+    # x,y: xy coordinate in meters 
+    # o: orientation (clockwise from x) in deg
     full_pose = torch.zeros(num_scenes, 3).float().to(device)
     local_pose = torch.zeros(num_scenes, 3).float().to(device)
 
@@ -219,7 +244,7 @@ def main():
                        max_grad_norm=args.max_grad_norm)
 
     # Local policy
-    l_policy = Local_IL_Policy(l_observation_space.shape, envs.action_space.n,
+    l_policy = Local_IL_Policy(l_observation_space.shape, 3,
                                recurrent=args.use_recurrent_local,
                                hidden_size=l_hidden_size,
                                deterministic=args.use_deterministic_local).to(device)
@@ -263,14 +288,40 @@ def main():
         l_policy.eval()
 
     # Predict map from frame 1:
-    poses = torch.from_numpy(np.asarray(
-        [infos[env_idx]['sensor_pose'] for env_idx
-         in range(num_scenes)])
-    ).float().to(device)
+    # output obstacle map, explored area, and pose
+    
+    if args.use_nslam:
+        poses = torch.from_numpy(np.asarray(
+            [infos[env_idx]['sensor_pose'] for env_idx
+            in range(num_scenes)])).float().to(device)
+        _, _, local_map[:, 0, :, :], local_map[:, 1, :, :], _, local_pose = \
+            nslam_module(obs, obs, poses, local_map[:, 0, :, :],
+                        local_map[:, 1, :, :], local_pose)
+    
+        if args.debug:
+            gt_map = infos[0]['map'][lmb[0, 0]:lmb[0, 1], lmb[0, 2]:lmb[0, 3]]
+            plt.figure()
+            plt.subplot(1,3,1)
+            plt.imshow(local_map[0, 0, :, :].cpu().numpy())
+            plt.subplot(1,3,2)
+            plt.imshow(gt_map)
+            plt.subplot(1,3,3)
+            plt.imshow(gt_map*8.0 + 5.0*local_map[0, 0, :, :].cpu().numpy())
+            plt.savefig('./debug/nslam.png')
+            print(f'nslam pose = {local_pose}')
+            print(f"gt pose = { infos[0]['sensor_pose'] }")
 
-    _, _, local_map[:, 0, :, :], local_map[:, 1, :, :], _, local_pose = \
-        nslam_module(obs, obs, poses, local_map[:, 0, :, :],
-                     local_map[:, 1, :, :], local_pose)
+    else:
+        all_maps = np.stack([infos[e]['map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
+        all_explored_maps = np.stack([infos[e]['explored_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
+        torch_maps = torch.from_numpy(all_maps).to(device)
+        torch_explored_maps = torch.from_numpy(all_explored_maps).to(device)
+        local_map[:, 0, :, :] = torch_maps
+        local_map[:, 1, :, :] = torch_explored_maps
+        local_pose = torch.from_numpy(np.asarray(
+            [infos[env_idx]['gt_pose'] for env_idx
+            in range(num_scenes)])).float().to(device) - \
+            torch.from_numpy(origins).to(device).float()
 
     # Compute Global policy input
     locs = local_pose.cpu().numpy()
@@ -280,10 +331,9 @@ def main():
     for e in range(num_scenes):
         r, c = locs[e, 1], locs[e, 0]
         loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
-                        int(c * 100.0 / args.map_resolution)]
-
-        local_map[e, 2:, loc_r - 1:loc_r + 2, loc_c - 1:loc_c + 2] = 1.
-        global_orientation[e] = int((locs[e, 2] + 180.0) / 5.)
+                        int(c * 100.0 / args.map_resolution)] # convert m to cm and find current pose bin
+        local_map[e, 2:, loc_r - 1:loc_r + 2, loc_c - 1:loc_c + 2] = 1. # set current and pass agent position channels to be the current position
+        global_orientation[e] = int((locs[e, 2] + 180.0) / 5.) # -180~180 to 0~360, digitize
 
     global_input[:, 0:4, :, :] = local_map.detach()
     global_input[:, 4:, :, :] = nn.MaxPool2d(args.global_downscaling)(full_map)
@@ -303,7 +353,7 @@ def main():
 
     cpu_actions = nn.Sigmoid()(g_action).cpu().numpy()
     global_goals = [[int(action[0] * local_w), int(action[1] * local_h)]
-                    for action in cpu_actions]
+                    for action in cpu_actions] # a list of xy coordinates 
 
     # Compute planner inputs
     planner_inputs = [{} for e in range(num_scenes)]
@@ -325,8 +375,8 @@ def main():
 
     torch.set_grad_enabled(False)
 
-    for ep_num in range(num_episodes):
-        for step in range(args.max_episode_length):
+    for ep_num in trange(num_episodes):
+        for step in trange(args.max_episode_length):
             total_num_steps += 1
 
             g_step = (step // args.num_local_steps) % args.num_global_steps
@@ -363,7 +413,7 @@ def main():
 
             l_masks = torch.FloatTensor([0 if x else 1
                                          for x in done]).to(device)
-            g_masks *= l_masks
+            g_masks *= l_masks # mask = 0 for done scenes 
             # ------------------------------------------------------------------
 
             # ------------------------------------------------------------------
@@ -376,34 +426,48 @@ def main():
 
             # ------------------------------------------------------------------
             # Neural SLAM Module
-            if args.train_slam:
-                # Add frames to memory
-                for env_idx in range(num_scenes):
-                    env_obs = obs[env_idx].to("cpu")
-                    env_poses = torch.from_numpy(np.asarray(
-                        infos[env_idx]['sensor_pose']
-                    )).float().to("cpu")
-                    env_gt_fp_projs = torch.from_numpy(np.asarray(
-                        infos[env_idx]['fp_proj']
-                    )).unsqueeze(0).float().to("cpu")
-                    env_gt_fp_explored = torch.from_numpy(np.asarray(
-                        infos[env_idx]['fp_explored']
-                    )).unsqueeze(0).float().to("cpu")
-                    env_gt_pose_err = torch.from_numpy(np.asarray(
-                        infos[env_idx]['pose_err']
-                    )).float().to("cpu")
-                    slam_memory.push(
-                        (last_obs[env_idx].cpu(), env_obs, env_poses),
-                        (env_gt_fp_projs, env_gt_fp_explored, env_gt_pose_err))
+            if args.use_nslam:
+                poses = torch.from_numpy(np.asarray(
+                    [infos[env_idx]['sensor_pose'] for env_idx
+                    in range(num_scenes)]) ).float().to(device)
+                if args.train_slam:
+                    # Add frames to memory
+                    for env_idx in range(num_scenes):
+                        env_obs = obs[env_idx].to("cpu")
+                        env_poses = torch.from_numpy(np.asarray(
+                            infos[env_idx]['sensor_pose']
+                        )).float().to("cpu")
+                        env_gt_fp_projs = torch.from_numpy(np.asarray(
+                            infos[env_idx]['fp_proj']
+                        )).unsqueeze(0).float().to("cpu")
+                        env_gt_fp_explored = torch.from_numpy(np.asarray(
+                            infos[env_idx]['fp_explored']
+                        )).unsqueeze(0).float().to("cpu")
+                        env_gt_pose_err = torch.from_numpy(np.asarray(
+                            infos[env_idx]['pose_err']
+                        )).float().to("cpu")
+                        slam_memory.push(
+                            (last_obs[env_idx].cpu(), env_obs, env_poses),
+                            (env_gt_fp_projs, env_gt_fp_explored, env_gt_pose_err))
 
-            poses = torch.from_numpy(np.asarray(
-                [infos[env_idx]['sensor_pose'] for env_idx
-                 in range(num_scenes)])
-            ).float().to(device)
-
-            _, _, local_map[:, 0, :, :], local_map[:, 1, :, :], _, local_pose = \
-                nslam_module(last_obs, obs, poses, local_map[:, 0, :, :],
-                             local_map[:, 1, :, :], local_pose, build_maps=True)
+                _, _, local_map[:, 0, :, :], local_map[:, 1, :, :], _, local_pose = \
+                    nslam_module(last_obs, obs, poses, local_map[:, 0, :, :],
+                                local_map[:, 1, :, :], local_pose, build_maps=True)
+                
+            else:
+                all_maps = np.stack([infos[e]['map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)]) # [0]: info returns a tuple (map,) for some reasons
+                all_explored_maps = np.stack([infos[e]['explored_map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
+                torch_maps = torch.from_numpy(all_maps).to(device)
+                torch_explored_maps = torch.from_numpy(all_explored_maps).to(device)
+                local_map[:, 0, :, :] = torch_maps
+                local_map[:, 1, :, :] = torch_explored_maps
+                local_pose = torch.from_numpy(np.asarray(
+                    [infos[env_idx]['gt_pose'] for env_idx
+                    in range(num_scenes)])).float().to(device) - \
+                    torch.from_numpy(origins).to(device).float()
+                # convert angle to be between -180 and 180
+                local_pose[:,2] = local_pose[:,2] % 360
+                local_pose[:,2] = local_pose[:,2] - 360*(local_pose[:,2] > 180)
 
             locs = local_pose.cpu().numpy()
             planner_pose_inputs[:, :3] = locs + origins
@@ -446,23 +510,10 @@ def main():
 
                 locs = local_pose.cpu().numpy()
                 for e in range(num_scenes):
-                    global_orientation[e] = int((locs[e, 2] + 180.0) / 5.)
+                    global_orientation[e] = np.clip(int((locs[e, 2] + 180.0) / 5.), 0, 71)
                 global_input[:, 0:4, :, :] = local_map
                 global_input[:, 4:, :, :] = \
                     nn.MaxPool2d(args.global_downscaling)(full_map)
-
-                if False:
-                    for i in range(4):
-                        ax[i].clear()
-                        ax[i].set_yticks([])
-                        ax[i].set_xticks([])
-                        ax[i].set_yticklabels([])
-                        ax[i].set_xticklabels([])
-                        ax[i].imshow(global_input.cpu().numpy()[0, 4 + i])
-                    plt.gcf().canvas.flush_events()
-                    # plt.pause(0.1)
-                    fig.canvas.start_event_loop(0.001)
-                    plt.gcf().canvas.flush_events()
 
                 # Get exploration reward and metrics
                 g_reward = torch.from_numpy(np.asarray(
@@ -470,32 +521,24 @@ def main():
                      in range(num_scenes)])
                 ).float().to(device)
 
-                if args.eval:
-                    g_reward = g_reward*50.0 # Convert reward to area in m2
-
                 g_process_rewards += g_reward.cpu().numpy()
                 g_total_rewards = g_process_rewards * \
-                                  (1 - g_masks.cpu().numpy())
-                g_process_rewards *= g_masks.cpu().numpy()
+                                  (1 - g_masks.cpu().numpy()) # only for done scenes 
+                g_process_rewards *= g_masks.cpu().numpy() # set accumlated rewards to zero for the scenes that are done 
                 per_step_g_rewards.append(np.mean(g_reward.cpu().numpy()))
 
                 if np.sum(g_total_rewards) != 0:
                     for tr in g_total_rewards:
                         g_episode_rewards.append(tr) if tr != 0 else None
-
-                if args.eval:
-                    exp_ratio = torch.from_numpy(np.asarray(
-                        [infos[env_idx]['exp_ratio'] for env_idx
-                         in range(num_scenes)])
-                    ).float()
-
-                    for e in range(num_scenes):
-                        explored_area_log[e, ep_num, eval_g_step - 1] = \
-                            explored_area_log[e, ep_num, eval_g_step - 2] + \
-                            g_reward[e].cpu().numpy()
-                        explored_ratio_log[e, ep_num, eval_g_step - 1] = \
-                            explored_ratio_log[e, ep_num, eval_g_step - 2] + \
-                            exp_ratio[e].cpu().numpy()
+               
+                exp_ratio = np.asarray([infos[env_idx]['exp_ratio'] for env_idx in range(num_scenes)]) 
+                per_step_area_coverage.append(np.mean(exp_ratio))
+                accumulated_ratio += exp_ratio
+                done_ratio = accumulated_ratio * (1 - g_masks.cpu().numpy()) # only for done scenes 
+                accumulated_ratio *= g_masks.cpu().numpy() # set done scenes exp ratio to zero
+                if np.sum(done_ratio) != 0:
+                    for scene_ratio in done_ratio:
+                        episode_area_coverage.append(scene_ratio) if scene_ratio != 0 else None
 
                 # Add samples to global policy storage
                 g_rollouts.insert(
@@ -628,62 +671,18 @@ def main():
             # ------------------------------------------------------------------
             # Logging
             if total_num_steps % args.log_interval == 0:
-                end = time.time()
-                time_elapsed = time.gmtime(end - start)
-                log = " ".join([
-                    "Time: {0:0=2d}d".format(time_elapsed.tm_mday - 1),
-                    "{},".format(time.strftime("%Hh %Mm %Ss", time_elapsed)),
-                    "num timesteps {},".format(total_num_steps *
-                                               num_scenes),
-                    "FPS {},".format(int(total_num_steps * num_scenes \
-                                         / (end - start)))
-                ])
+                writer.add_scalar('global reward/step mean', np.mean(per_step_g_rewards), total_num_steps)
+                writer.add_scalar('global reward/ep mean', np.mean(g_episode_rewards), total_num_steps)
 
-                log += "\n\tRewards:"
+                writer.add_scalar('global area coverage/ep mean', 
+                                  np.mean(episode_area_coverage), total_num_steps)
+                writer.add_scalar('global area coverage/step mean', 
+                                  np.mean(per_step_area_coverage), total_num_steps)
 
-                if len(g_episode_rewards) > 0:
-                    log += " ".join([
-                        " Global step mean/med rew:",
-                        "{:.4f}/{:.4f},".format(
-                            np.mean(per_step_g_rewards),
-                            np.median(per_step_g_rewards)),
-                        " Global eps mean/med/min/max eps rew:",
-                        "{:.3f}/{:.3f}/{:.3f}/{:.3f},".format(
-                            np.mean(g_episode_rewards),
-                            np.median(g_episode_rewards),
-                            np.min(g_episode_rewards),
-                            np.max(g_episode_rewards))
-                    ])
+                writer.add_scalar('global loss/value', np.mean(g_value_losses), total_num_steps)
+                writer.add_scalar('global loss/action', np.mean(g_action_losses), total_num_steps)
+                writer.add_scalar('global loss/dist', np.mean(g_dist_entropies), total_num_steps)
 
-                log += "\n\tLosses:"
-
-                if args.train_local and len(l_action_losses) > 0:
-                    log += " ".join([
-                        " Local Loss:",
-                        "{:.3f},".format(
-                            np.mean(l_action_losses))
-                    ])
-
-                if args.train_global and len(g_value_losses) > 0:
-                    log += " ".join([
-                        " Global Loss value/action/dist:",
-                        "{:.3f}/{:.3f}/{:.3f},".format(
-                            np.mean(g_value_losses),
-                            np.mean(g_action_losses),
-                            np.mean(g_dist_entropies))
-                    ])
-
-                if args.train_slam and len(costs) > 0:
-                    log += " ".join([
-                        " SLAM Loss proj/exp/pose:"
-                        "{:.4f}/{:.4f}/{:.4f}".format(
-                            np.mean(costs),
-                            np.mean(exp_costs),
-                            np.mean(pose_costs))
-                    ])
-
-                print(log)
-                logging.info(log)
             # ------------------------------------------------------------------
 
             # ------------------------------------------------------------------
@@ -732,37 +731,14 @@ def main():
                                os.path.join(dump_dir,
                                             "periodic_{}.global".format(step)))
             # ------------------------------------------------------------------
-
-    # Print and save model performance numbers during evaluation
-    if args.eval:
-        logfile = open("{}/explored_area.txt".format(dump_dir), "w+")
-        for e in range(num_scenes):
-            for i in range(explored_area_log[e].shape[0]):
-                logfile.write(str(explored_area_log[e, i]) + "\n")
-                logfile.flush()
-
-        logfile.close()
-
-        logfile = open("{}/explored_ratio.txt".format(dump_dir), "w+")
-        for e in range(num_scenes):
-            for i in range(explored_ratio_log[e].shape[0]):
-                logfile.write(str(explored_ratio_log[e, i]) + "\n")
-                logfile.flush()
-
-        logfile.close()
-
-        log = "Final Exp Area: \n"
-        for i in range(explored_area_log.shape[2]):
-            log += "{:.5f}, ".format(
-                np.mean(explored_area_log[:, :, i]))
-
-        log += "\nFinal Exp Ratio: \n"
-        for i in range(explored_ratio_log.shape[2]):
-            log += "{:.5f}, ".format(
-                np.mean(explored_ratio_log[:, :, i]))
-
-        print(log)
-        logging.info(log)
+        
+        # generate video out of images when an episode ends
+        if args.print_images:
+            for scene in range(num_scenes):
+                img_path = '{}/thread_{}/ep_{}/%04d.png'.format(dump_dir, scene+1, (ep_num+1)*2)
+                save_path = '{}/thread_{}/video_{}.mp4'.format(dump_dir, scene+1, (ep_num+1)*2)
+                os.system(
+                    f"ffmpeg -framerate 30  -i  {img_path} -y {save_path}")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,6 @@ matplotlib
 tensorboard
 seaborn
 imageio
-scikit-fmm # fast marching method for finding route to long-term goal
+scikit-fmm==2023.4.2 # fast marching method for finding route to long-term goal
 scikit-image
 scikit-learn

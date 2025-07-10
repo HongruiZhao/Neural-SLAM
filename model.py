@@ -158,6 +158,7 @@ class Neural_SLAM_Module(nn.Module):
             build_maps=True):
 
         # Get egocentric map prediction for the current obs
+        #obs = torch.stack(obs)
         bs, c, h, w = obs.size()
         resnet_output = self.resnet_l5(obs[:, :3, :, :])
         conv_output = self.conv(resnet_output)
@@ -177,6 +178,7 @@ class Neural_SLAM_Module(nn.Module):
 
         with torch.no_grad():
             # Get egocentric map prediction for the last obs
+            #obs_last = torch.stack(obs_last)
             bs, c, h, w = obs_last.size()
             resnet_output = self.resnet_l5(obs_last[:, :3, :, :])
             conv_output = self.conv(resnet_output)

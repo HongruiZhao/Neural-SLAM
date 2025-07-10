@@ -51,7 +51,8 @@ def get_point_cloud_from_z(Y, camera_matrix, scale=1):
     X = (x[::scale, ::scale] - camera_matrix.xc) * Y[::scale, ::scale] / camera_matrix.f
     Z = (z[::scale, ::scale] - camera_matrix.zc) * Y[::scale, ::scale] / camera_matrix.f
     XYZ = np.concatenate((X[..., np.newaxis], Y[::scale, ::scale][..., np.newaxis],
-                          Z[..., np.newaxis]), axis=X.ndim)
+                          Z[..., np.newaxis]), axis=X.ndim) # same unit as Y (so meter). pinhole vector * Y/f
+    
     return XYZ
 
 
@@ -94,13 +95,14 @@ def bin_points(XYZ_cms, map_size, z_bins, xy_resolution):
     XYZ_cms is ... x H x W x3
     Outputs is ... x map_size x map_size x (len(z_bins)+1)
     """
-    sh = XYZ_cms.shape
-    XYZ_cms = XYZ_cms.reshape([-1, sh[-3], sh[-2], sh[-1]])
-    n_z_bins = len(z_bins) + 1
+    sh = XYZ_cms.shape 
+    XYZ_cms = XYZ_cms.reshape([-1, sh[-3], sh[-2], sh[-1]]) 
+    n_z_bins = len(z_bins) + 1 # z_bins has length = 2
     counts = []
     isvalids = []
     for XYZ_cm in XYZ_cms:
         isnotnan = np.logical_not(np.isnan(XYZ_cm[:, :, 0]))
+        XYZ_cm[np.isnan(XYZ_cm)] = 0.0
         X_bin = np.round(XYZ_cm[:, :, 0] / xy_resolution).astype(np.int32)
         Y_bin = np.round(XYZ_cm[:, :, 1] / xy_resolution).astype(np.int32)
         Z_bin = np.digitize(XYZ_cm[:, :, 2], bins=z_bins).astype(np.int32)

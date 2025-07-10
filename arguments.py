@@ -1,10 +1,12 @@
-import argparse
+import configargparse
 import math
 import torch
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description='Active-Neural-SLAM')
+    parser = configargparse.ArgumentParser()
+    parser.add_argument('--config', is_config_file=True, 
+                        help='config file path')
 
     ## General Arguments
     parser.add_argument('--seed', type=int, default=1,
@@ -32,6 +34,7 @@ def get_args():
     parser.add_argument('--train_slam', type=int, default=1,
                         help="""0: Do not train the Neural SLAM Module
                                 1: Train the Neural SLAM Module (default: 1)""")
+    parser.add_argument('--use_nslam', type=int, default=1) # =0 will use gt map and pose instead
 
     # Logging, loading models, visualization
     parser.add_argument('--log_interval', type=int, default=10,
@@ -77,7 +80,7 @@ def get_args():
     parser.add_argument("--sim_gpu_id", type=int, default=0,
                         help="gpu id on which scenes are loaded")
     parser.add_argument("--task_config", type=str,
-                        default="tasks/pointnav_gibson.yaml",
+                        default="gibson.yaml",
                         help="path to config yaml containing task information")
     parser.add_argument("--split", type=str, default="train",
                         help="dataset split (train | val | val_mini) ")
@@ -156,12 +159,17 @@ def get_args():
 
     parser.add_argument('--vision_range', type=int, default=64)
     parser.add_argument('--obstacle_boundary', type=int, default=5)
-    parser.add_argument('--map_resolution', type=int, default=5)
+    parser.add_argument('--map_resolution', type=int, default=5) # in cm
     parser.add_argument('--du_scale', type=int, default=2)
     parser.add_argument('--map_size_cm', type=int, default=2400)
     parser.add_argument('-ot', '--obs_threshold', type=float, default=1)
     parser.add_argument('-ct', '--collision_threshold', type=float, default=0.20)
     parser.add_argument('-nl', '--noise_level', type=float, default=1.0)
+
+    # for debugging 
+    parser.add_argument('--debug', type=int, default=0,
+                        help='if enter debug mode(default: 0)')
+
 
     # parse arguments
     args = parser.parse_args()
@@ -226,6 +234,8 @@ def get_args():
                                       args.num_processes_on_first_gpu))
             print("Number of processes per GPU: {}".format(
                                       args.num_processes_per_gpu))
+            
+    args.device = torch.device("cuda:0" if args.cuda else "cpu")
 
     if args.eval == 1:
         if args.train_global:
