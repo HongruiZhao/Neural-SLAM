@@ -1,0 +1,20 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "My Python Debugger", // custom configuration name 
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}", // run current file 
+            "cwd":"${workspaceFolder}/mapping_test.py",
+            "console": "integratedTerminal", // debugger console does not support args
+            //"args": "${command:pickArgs}", // take input arguments 
+            "args": ["--habitat_config", "/home/hongrui/Codes/Neural-SLAM/mapping_test.py/configs/habitat.yaml",
+                "--mapping_config", "/home/hongrui/Codes/Neural-SLAM/mapping_test.py/configs/mapping.yaml"],
+            "stopOnEntry": true // automatically stop the debugger on the first line
+        }
+    ]
+}

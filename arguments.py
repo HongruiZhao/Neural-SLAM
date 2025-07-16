@@ -158,7 +158,7 @@ def get_args():
     parser.add_argument('--map_pred_threshold', type=float, default=0.5)
 
     parser.add_argument('--vision_range', type=int, default=64)
-    parser.add_argument('--obstacle_boundary', type=int, default=5)
+    parser.add_argument('--obstacle_boundary', type=int, default=5) # in cm
     parser.add_argument('--map_resolution', type=int, default=5) # in cm
     parser.add_argument('--du_scale', type=int, default=2)
     parser.add_argument('--map_size_cm', type=int, default=2400)

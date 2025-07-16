@@ -2,7 +2,7 @@ split =  val
 eval =  1 
 auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
 num_processes = 1 # 4 processes by default. used when auto_gpu_config is false
-num_episodes = 2
+num_episodes = 5
 max_episode_length = 1000 #1000 for default
 debug = 0
 
@@ -12,15 +12,17 @@ train_slam = 0
 use_nslam = 0
 
 #load_global = pretrained_models/model_best.global
-load_global = ./results/models/train_july9/model_best.global
+load_global = ./results/models/train_july10/model_best.global
 load_local = pretrained_models/model_best.local
+#load_local = ./results/models/train_july10/model_best.local
 load_slam = pretrained_models/model_best.slam
 
 noisy_odometry = 0
 collision_threshold = 0.001
-
+num_local_steps = 25 # default 25 
+obstacle_boundary = 15 # default 5
 
 print_images = 1
 vis_type = 1 # 2 show GT map, 1 show predicted map
 dump_location = results/
-exp_name = test_july10_mine
+exp_name = test_july14

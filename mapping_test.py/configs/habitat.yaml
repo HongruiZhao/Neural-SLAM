@@ -1,0 +1,22 @@
+scene:
+  data_path: '/home/hongrui/Datasets/habitat'
+  scene: 'scene_datasets/gibson/Adrian.glb'
+  #scene_dataset: 'scene_datasets/mp3d_example/mp3d.scene_dataset_config.json'
+  enable_physics: False   
+
+agent:
+  default_agent: 0 # index of the default agent 
+  sensor_height: 0.351 # Height of sensors in meters, relative to the agent. turtlebot is 351mm height
+  width: 640 # spatial resolution of the observation 
+  height: 480 
+  depth_sensor: True # if use depth sensor 
+  semantic_sensor: False # if using semantic sensor
+  initial_position: [0, 0.0, 0.0] # meters in world space
+
+action:
+  move_forward: 0.25 # forward action displacement in m 
+  turn: 30 # turn angle displacement in deg 
+
+
+sim:
+  max_frames: 5000 # simulation length

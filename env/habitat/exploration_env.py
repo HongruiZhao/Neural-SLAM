@@ -110,8 +110,10 @@ class Exploration_Env(habitat.RLEnv):
         self.accumulated_ratio = 0
 
 
-    def randomize_env(self):
-        self._env._episode_iterator._shuffle_iterator()
+    # def randomize_env(self):
+    #     # https://aihabitat.org/docs/habitat-lab/habitat.core.dataset.EpisodeIterator.html#dunder-methods
+    #     # shuffles the remaining episodes
+    #     self._env.episode_iterator._shuffle()
 
     def save_trajectory_data(self):
         if "replica" in self.scene_name:
@@ -149,13 +151,13 @@ class Exploration_Env(habitat.RLEnv):
         self._previous_action = None
         self.trajectory_states = []
         self.accumulated_ratio = 0
-        
+
         # shuffle into a different episode
         # episodes are loaded from task dataset like pointnav_gibson_v1
         # an episode includes initial position and rotation of agent, scene id, episode_id
-        if args.randomize_env_every > 0: 
-            if np.mod(self.episode_no, args.randomize_env_every) == 0:
-                self.randomize_env()
+        # if args.randomize_env_every > 0: 
+        #     if np.mod(self.episode_no, args.randomize_env_every) == 0:
+        #         self.randomize_env()
 
         # Get Ground Truth Map
         self.explorable_map = None
@@ -715,9 +717,13 @@ class Exploration_Env(habitat.RLEnv):
 
 
     def _get_stg(self, grid, explored, start, goal, planning_window):
+        """
+            @param grid: predicted map
+        """
 
         [gx1, gx2, gy1, gy2] = planning_window
 
+        # bounding box (expanded with a buffer) with start and goal at the two corners 
         x1 = min(start[0], goal[0])
         x2 = max(start[0], goal[0])
         y1 = min(start[1], goal[1])
@@ -729,6 +735,7 @@ class Exploration_Env(habitat.RLEnv):
         y1 = max(1, int(y1 - buf))
         y2 = min(grid.shape[1]-1, int(y2 + buf))
 
+        # bounding box of explored area 
         rows = explored.sum(1)
         rows[rows>0] = 1
         ex1 = np.argmax(rows)
@@ -744,6 +751,7 @@ class Exploration_Env(habitat.RLEnv):
         ey1 = min(int(start[1]) - 2, ey1)
         ey2 = max(int(start[1]) + 2, ey2)
 
+        # intersecton of two bounding boxes 
         x1 = max(x1, ex1)
         x2 = min(x2, ex2)
         y1 = max(y1, ey1)
@@ -751,7 +759,7 @@ class Exploration_Env(habitat.RLEnv):
 
         traversible = skimage.morphology.binary_dilation(
                         grid[x1:x2, y1:y2],
-                        self.selem) != True
+                        self.selem) != True # enlarge obstacle through dilation
         traversible[self.collison_map[gx1:gx2, gy1:gy2][x1:x2, y1:y2] == 1] = 0
         traversible[self.visited[gx1:gx2, gy1:gy2][x1:x2, y1:y2] == 1] = 1
 
@@ -761,10 +769,10 @@ class Exploration_Env(habitat.RLEnv):
         if goal[0]-2 > x1 and goal[0]+3 < x2\
             and goal[1]-2 > y1 and goal[1]+3 < y2:
             traversible[int(goal[0]-x1)-2:int(goal[0]-x1)+3,
-                    int(goal[1]-y1)-2:int(goal[1]-y1)+3] = 1
+                    int(goal[1]-y1)-2:int(goal[1]-y1)+3] = 1 # set area around goal to be traversible
         else:
             goal[0] = min(max(x1, goal[0]), x2)
-            goal[1] = min(max(y1, goal[1]), y2)
+            goal[1] = min(max(y1, goal[1]), y2) # goal out of bound
 
         def add_boundary(mat):
             h, w = mat.shape
@@ -776,7 +784,7 @@ class Exploration_Env(habitat.RLEnv):
 
         planner = FMMPlanner(traversible, 360//self.dt)
 
-        reachable = planner.set_goal([goal[1]-y1+1, goal[0]-x1+1])
+        reachable = planner.set_goal([goal[1]-y1+1, goal[0]-x1+1]) # goal w.r.t (x1,y1)
 
         stg_x, stg_y = start[0] - x1 + 1, start[1] - y1 + 1
         for i in range(self.args.short_goal_dist):

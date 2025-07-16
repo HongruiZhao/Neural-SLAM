@@ -468,10 +468,11 @@ def main():
                 # convert angle to be between -180 and 180
                 local_pose[:,2] = local_pose[:,2] % 360
                 local_pose[:,2] = local_pose[:,2] - 360*(local_pose[:,2] > 180)
-
+            
             locs = local_pose.cpu().numpy()
             planner_pose_inputs[:, :3] = locs + origins
             local_map[:, 2, :, :].fill_(0.)  # Resetting current location channel
+
             for e in range(num_scenes):
                 r, c = locs[e, 1], locs[e, 0]
                 loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
