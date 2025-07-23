@@ -61,7 +61,8 @@ def get_batch_query_fn(query_fn, num_args=1, device=None):
 
 #### NeuralRGBD ####
 @torch.no_grad()
-def extract_mesh(query_fn, config, bounding_box, marching_cube_bound=None, color_func = None, voxel_size=None, resolution=None, isolevel=0.0, scene_name='', mesh_savepath=''):
+def extract_mesh(query_fn, config, bounding_box, marching_cube_bound=None, color_func = None, voxel_size=None, 
+                 resolution=None, isolevel=0.0, scene_name='', mesh_savepath='', render_uncert=True):
     '''
     Extracts mesh from the scene model using marching cubes (Adapted from NeuralRGBD)
     '''
@@ -139,6 +140,29 @@ def extract_mesh(query_fn, config, bounding_box, marching_cube_bound=None, color
         
         raw = np.concatenate(raw, 0).astype(np.float32)
         color = np.reshape(raw, list(sh[:-1]) + [-1])
+        mesh = trimesh.Trimesh(vertices, triangles, process=False, vertex_colors=color)
+    elif render_uncert:
+        print('rendering surface uncertainty')
+        if config['grid']['tcnn_encoding']:
+            vert_flat = (torch.from_numpy(vertices).to(bounding_box) - bounding_box[:, 0]) / (bounding_box[:, 1] - bounding_box[:, 0])
+        
+        ### get query function for uncertainty ###
+        fn_uncert = lambda f, i0, i1: query_fn(f[i0:i1, None, :].to(bounding_box.device), return_uncert=True)[:, 0, 1] # query function for uncertainty
+
+        ### get uncertainty ###
+        raw_uncert = [fn_uncert(vert_flat,  i, i + chunk).cpu().data.numpy() for i in range(0, vert_flat.shape[0], chunk)]
+        sh = vert_flat.shape
+        raw_uncert = np.concatenate(raw_uncert, 0).astype(np.float32)
+
+        ### colorize mesh with uncertainty ###
+        ## relative uncertainty ##
+        #uncert_normalized = (raw_uncert - raw_uncert.min()) / (raw_uncert.max() - raw_uncert.min())
+        ## absolute uncertainty ##
+        uncert_normalized = np.clip(raw_uncert, 0, 3) / 3
+        colormap = plt.get_cmap('jet')
+        uncert_colored = colormap(uncert_normalized.flatten())[:, :3]  # Discard alpha channel
+
+        color = np.reshape(uncert_colored, list(sh[:-1]) + [-1])
         mesh = trimesh.Trimesh(vertices, triangles, process=False, vertex_colors=color)
 
     else:

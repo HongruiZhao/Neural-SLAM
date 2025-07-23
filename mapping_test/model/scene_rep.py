@@ -1,6 +1,7 @@
 # package imports
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 # Local imports
 from .encodings import get_encoder
@@ -11,6 +12,7 @@ class JointEncoding(nn.Module):
     def __init__(self, config, bound_box):
         super(JointEncoding, self).__init__()
         self.config = config
+        self.uncertainty_flag = config['grid']['uncertainty']
         self.bounding_box = bound_box
         self.get_resolution()
         self.get_encoding(config)
@@ -31,6 +33,14 @@ class JointEncoding(nn.Module):
             self.resolution_color = self.config['grid']['voxel_color']
         else:
             self.resolution_color = int(dim_max / self.config['grid']['voxel_color'])
+
+        # for tensor decomposition 
+        diff = self.bounding_box[:,1] - self.bounding_box[:,0] 
+        sdf_coarse = (diff / self.config['grid']['sdf_coarse']).int()
+        sdf_fine = (diff / self.config['grid']['sdf_fine']).int()
+        app_coarse = (diff / self.config['grid']['app_coarse']).int()
+        app_fine = (diff / self.config['grid']['app_fine']).int()
+        self.tensor_dims = [sdf_coarse, sdf_fine, app_coarse, app_fine]
         
         print('SDF resolution:', self.resolution_sdf)
 
@@ -42,19 +52,28 @@ class JointEncoding(nn.Module):
         self.embedpos_fn, self.input_ch_pos = get_encoder(config['pos']['enc'], n_bins=self.config['pos']['n_bins'])
 
         # Sparse parametric encoding (SDF)
-        self.embed_fn, self.input_ch = get_encoder(config['grid']['enc'], log2_hashmap_size=config['grid']['hash_size'], desired_resolution=self.resolution_sdf)
+        self.embed_fn, self.input_ch = get_encoder(config['grid']['enc'],log2_hashmap_size=config['grid']['hash_size'], 
+                                                    desired_resolution=self.resolution_sdf,
+                                                    tensors_dim=[self.tensor_dims[0],self.tensor_dims[1]],
+                                                    cp_rank=config['grid']['sdf_rank'], tensor_f_dim=config['grid']['sdf_f_dim'],
+                                                    uncertainty=self.uncertainty_flag)
 
         # Sparse parametric encoding (Color)
         if not self.config['grid']['oneGrid']:
             print('Color resolution:', self.resolution_color)
-            self.embed_fn_color, self.input_ch_color = get_encoder(config['grid']['enc'], log2_hashmap_size=config['grid']['hash_size'], desired_resolution=self.resolution_color)
+            self.embed_fn_color, self.input_ch_color = get_encoder(config['grid']['enc'], log2_hashmap_size=config['grid']['hash_size'], 
+                                                                   desired_resolution=self.resolution_color,
+                                                                   tensors_dim=[self.tensor_dims[2], self.tensor_dims[3]],
+                                                                   cp_rank=config['grid']['app_rank'], tensor_f_dim=config['grid']['app_f_dim'],
+                                                                   uncertainty=False)
 
     def get_decoder(self, config):
         '''
         Get the decoder of the scene representation
         '''
         if not self.config['grid']['oneGrid']:
-            self.decoder = ColorSDFNet(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
+            self.decoder = ColorSDFNet(config, input_ch=self.input_ch, input_ch_color=self.input_ch_color,
+                                        input_ch_pos=self.input_ch_pos)
         else:
             self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
         
@@ -88,16 +107,17 @@ class JointEncoding(nn.Module):
         Perform volume rendering using weights computed from sdf.
 
         Params:
-            raw: [N_rays, N_samples, 4]
+            raw: [N_rays, N_samples, 4] or [N_rays, N_samples, 5] with uncertainty
             z_vals: [N_rays, N_samples]
         Returns:
             rgb_map: [N_rays, 3]
             disp_map: [N_rays]
             acc_map: [N_rays]
             weights: [N_rays, N_samples]
+            uncert_map: [N_rays] 
         '''
         rgb = torch.sigmoid(raw[...,:3])  # [N_rays, N_samples, 3]
-        weights = self.sdf2weights(raw[..., 3], z_vals, args=self.config)
+        weights = self.sdf2weights(raw[..., 3], z_vals, args=self.config) # [N_rays, N_samples]
         rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
 
         depth_map = torch.sum(weights * z_vals, -1)
@@ -108,11 +128,18 @@ class JointEncoding(nn.Module):
         if white_bkgd:
             rgb_map = rgb_map + (1.-acc_map[...,None])
 
-        return rgb_map, disp_map, acc_map, weights, depth_map, depth_var
+        if self.uncertainty_flag:
+            uncert = F.softplus(raw[...,4]) + 0.01 # 0.01 is the min uncertainty
+            uncert_map = torch.sum(weights*uncert*uncert, -1)
+        else:
+            uncert_map = None
+
+        return rgb_map, disp_map, acc_map, weights, depth_map, depth_var, uncert_map
     
-    def query_sdf(self, query_points, return_geo=False, embed=False):
+    def query_sdf(self, query_points, return_geo=False, embed=False, return_uncert=False):
         '''
         Get the SDF value of the query points
+        Used for extracting mesh and smoothness loss
         Params:
             query_points: [N_rays, N_samples, 3]
         Returns:
@@ -121,7 +148,7 @@ class JointEncoding(nn.Module):
         '''
         inputs_flat = torch.reshape(query_points, [-1, query_points.shape[-1]])
   
-        embedded = self.embed_fn(inputs_flat)
+        embedded, uncert = self.embed_fn(inputs_flat)
         if embed:
             return torch.reshape(embedded, list(query_points.shape[:-1]) + [embedded.shape[-1]])
 
@@ -130,6 +157,11 @@ class JointEncoding(nn.Module):
         sdf, geo_feat = out[..., :1], out[..., 1:]
 
         sdf = torch.reshape(sdf, list(query_points.shape[:-1]))
+        
+        if return_uncert:
+            uncert = torch.reshape(uncert, list(query_points.shape[:-1]))
+            sdf = torch.stack([sdf, uncert], -1)  # stack uncertainty to the sdf.
+
         if not return_geo:
             return sdf
         geo_feat = torch.reshape(geo_feat, list(query_points.shape[:-1]) + [geo_feat.shape[-1]])
@@ -146,16 +178,29 @@ class JointEncoding(nn.Module):
         Params:
             query_points: [N_rays, N_samples, 3]
         Returns:
-            raw: [N_rays, N_samples, 4]
+            raw: [N_rays*N_samples, 4] or [N_rays*N_samples,5] with uncertainty
+                 the first three CH are RGB, the fourth channel is sdf 
         '''
         inputs_flat = torch.reshape(query_points, [-1, query_points.shape[-1]])
-
-        embed = self.embed_fn(inputs_flat)
+        
+        embed, uncert = self.embed_fn(inputs_flat)
         embe_pos = self.embedpos_fn(inputs_flat)
         if not self.config['grid']['oneGrid']:
-            embed_color = self.embed_fn_color(inputs_flat)
-            return self.decoder(embed, embe_pos, embed_color)
-        return self.decoder(embed, embe_pos)
+            embed_color, _ = self.embed_fn_color(inputs_flat)
+            if self.uncertainty_flag:
+                return torch.cat(
+                    (self.decoder(embed, embe_pos, embed_color), uncert),
+                    dim=-1)
+            else:
+                return self.decoder(embed, embe_pos, embed_color)
+        
+        if self.uncertainty_flag:
+            return torch.cat(
+                    (self.decoder(embed, embe_pos), uncert),
+                    dim=-1)
+  
+        else:    
+            return self.decoder(embed, embe_pos)
     
     def run_network(self, inputs):
         """
@@ -164,14 +209,14 @@ class JointEncoding(nn.Module):
         Params:
             inputs: [N_rays, N_samples, 3]
         Returns:
-            outputs: [N_rays, N_samples, 4]
+            outputs: [N_rays, N_samples, 4] or [N_rays, N_samples, 5] with uncertainty
         """
         inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]])
         
         # Normalize the input to [0, 1] (TCNN convention)
         if self.config['grid']['tcnn_encoding']:
             inputs_flat = (inputs_flat - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
-
+ 
         outputs_flat = batchify(self.query_color_sdf, None)(inputs_flat)
         outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
 
@@ -192,12 +237,12 @@ class JointEncoding(nn.Module):
         
         pts = rays_o[...,:] + normal[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
         raw = self.run_network(pts)
-        rgb, disp_map, acc_map, weights, depth_map, depth_var = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
+        rgb, disp_map, acc_map, weights, depth_map, depth_var, uncert_map = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
         return rgb
     
     def render_rays(self, rays_o, rays_d, target_d=None):
         '''
-        Params:
+            Params:
             rays_o: [N_rays, 3]
             rays_d: [N_rays, 3]
             target_d: [N_rays, 1]
@@ -230,12 +275,13 @@ class JointEncoding(nn.Module):
         # Run rendering pipeline
         pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
         raw = self.run_network(pts)
-        rgb_map, disp_map, acc_map, weights, depth_map, depth_var = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
+        rgb_map, disp_map, acc_map, weights, depth_map, depth_var, uncert_map = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
 
         # Importance sampling
         if self.config['training']['n_importance'] > 0:
 
-            rgb_map_0, disp_map_0, acc_map_0, depth_map_0, depth_var_0 = rgb_map, disp_map, acc_map, depth_map, depth_var
+            rgb_map_0, disp_map_0, acc_map_0, depth_map_0, depth_var_0, uncert_map_0 = \
+                rgb_map, disp_map, acc_map, depth_map, depth_var, uncert_map
 
             z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
             z_samples = sample_pdf(z_vals_mid, weights[...,1:-1], self.config['training']['n_importance'], det=(self.config['training']['perturb']==0.))
@@ -245,12 +291,12 @@ class JointEncoding(nn.Module):
             pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples + N_importance, 3]
 
             raw = self.run_network(pts)
-            rgb_map, disp_map, acc_map, weights, depth_map, depth_var = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
+            rgb_map, disp_map, acc_map, weights, depth_map, depth_var, uncert_map = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
 
         # Return rendering outputs
         ret = {'rgb' : rgb_map, 'depth' :depth_map, 
                'disp_map' : disp_map, 'acc_map' : acc_map, 
-               'depth_var':depth_var,}
+               'depth_var':depth_var, 'uncert_map':uncert_map,}
         ret = {**ret, 'z_vals': z_vals}
 
         ret['raw'] = raw
@@ -261,6 +307,7 @@ class JointEncoding(nn.Module):
             ret['acc0'] = acc_map_0
             ret['depth0'] = depth_map_0
             ret['depth_var0'] = depth_var_0
+            ret['uncert_map0'] = uncert_map_0
             ret['z_std'] = torch.std(z_samples, dim=-1, unbiased=False)
 
         return ret
@@ -301,7 +348,7 @@ class JointEncoding(nn.Module):
         
         # Get sdf loss
         z_vals = rend_dict['z_vals']  # [N_rand, N_samples + N_importance]
-        sdf = rend_dict['raw'][..., -1]  # [N_rand, N_samples + N_importance]
+        sdf = rend_dict['raw'][..., 3]  # [N_rand, N_samples + N_importance]
         truncation = self.config['training']['trunc'] * self.config['data']['sc_factor']
         fs_loss, sdf_loss = get_sdf_loss(z_vals, target_d, sdf, truncation, 'l2', grad=None)         
         
@@ -315,5 +362,14 @@ class JointEncoding(nn.Module):
             "fs_loss": fs_loss,
             "psnr": psnr,
         }
+
+        if self.uncertainty_flag:
+            uncert_map = rend_dict['uncert_map']
+            assert uncert_map.min() > 0
+            uncert_map = uncert_map[valid_depth_mask]
+            x = rend_dict["depth"].squeeze()[valid_depth_mask]
+            y = target_d.squeeze()[valid_depth_mask]
+            uncert_loss = torch.mean((1 / (2*(uncert_map+1e-9).unsqueeze(-1))) *((x - y) ** 2)) + 0.5*torch.mean(torch.log(uncert_map+1e-9))
+            ret['uncert_loss'] = uncert_loss
 
         return ret

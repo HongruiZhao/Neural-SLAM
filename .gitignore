@@ -133,3 +133,4 @@ dmypy.json
 /results
 /tmp
 /debug
+/mapping_test.py/output/turtlebot

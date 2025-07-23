@@ -123,7 +123,7 @@ class Mapping():
         return indice
 
 
-    def get_loss_from_ret(self, ret, rgb=True, sdf=True, depth=True, fs=True, smooth=False):
+    def get_loss_from_ret(self, ret, rgb=True, sdf=True, depth=True, fs=True, smooth=False, uncert=True):
         '''
         Get the training loss
         '''
@@ -141,7 +141,9 @@ class Mapping():
             loss += self.config['training']['smooth_weight'] * self.smoothness(self.config['training']['smooth_pts'], 
                                                                                   self.config['training']['smooth_vox'], 
                                                                                   margin=self.config['training']['smooth_margin'])
-        
+        if uncert and self.config['grid']['uncertainty']:
+            loss += self.config['training']['uncert_weight'] * ret['uncert_loss']
+
         return loss             
 
 
@@ -297,9 +299,20 @@ class Mapping():
         '''
         Create optimizer for mapping
         '''
+        
+        embed_params = []
+        uncert_params = []
+        for name, param in self.model.embed_fn.named_parameters():
+            if 'uncert' in name:
+                uncert_params.append(param)
+            else:
+                embed_params.append(param)
 
         trainable_parameters = [{'params': self.model.decoder.parameters(), 'weight_decay': 1e-6, 'lr': self.config['mapping']['lr_decoder']},
-                                    {'params': self.model.embed_fn.parameters(), 'eps': 1e-15, 'lr': self.config['mapping']['lr_embed']}]
+                                    {'params': embed_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_embed']}]
+            
+        if self.config['grid']['uncertainty']:
+            trainable_parameters.append({'params': uncert_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_uncert']})
 
         if not self.config['grid']['oneGrid']:
             trainable_parameters.append({'params': self.model.embed_fn_color.parameters(), 'eps': 1e-15, 'lr': self.config['mapping']['lr_embed_color']})
@@ -308,7 +321,8 @@ class Mapping():
         
     
     def save_mesh(self, i, voxel_size=0.05):
-        mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', 'mesh_track{}.ply'.format(i))
+        mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', 'mesh_track{}.ply'.format(i))            
+        
         if self.config['mesh']['render_color']:
             color_func = self.model.render_surface_color
         else:
@@ -320,6 +334,19 @@ class Mapping():
                         marching_cube_bound=self.marching_cube_bound, 
                         voxel_size=voxel_size, 
                         mesh_savepath=mesh_savepath)    
+        
+        if self.config['mesh']['save_uncert'] and self.config['grid']['uncertainty']:
+            mesh_uncert_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], 
+                                         f'agent_{self.agent_id}', 'mesh_uncert_track{}.ply'.format(i))
+            extract_mesh(self.model.query_sdf, 
+                self.config, 
+                self.bounding_box, 
+                color_func=None, 
+                marching_cube_bound=self.marching_cube_bound, 
+                voxel_size=voxel_size, 
+                render_uncert=True,
+                mesh_savepath=mesh_uncert_savepath)  
+
 
 
     def run(self, i, batch):

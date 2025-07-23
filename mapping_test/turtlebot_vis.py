@@ -68,11 +68,11 @@ def process_uncertainty_file(file_path, cfg, N_l, params_in_level, vis_type, nei
 
 
 def get_latest_mesh(directory):
-    list_of_files = glob.glob(os.path.join(directory, 'mesh_track*.ply'))
+    list_of_files = glob.glob(os.path.join(directory, 'mesh_uncert_track*.ply'))
     if not list_of_files:
         return None
 
-    latest_file = max(list_of_files, key=lambda f: int(f.split('mesh_track')[-1].split('.ply')[0]))
+    latest_file = max(list_of_files, key=lambda f: int(f.split('mesh_uncert_track')[-1].split('.ply')[0]))
     return latest_file
 
 

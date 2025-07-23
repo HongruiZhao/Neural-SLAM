@@ -111,11 +111,11 @@ class ColorSDFNet(nn.Module):
     '''
     Color grid + SDF grid
     '''
-    def __init__(self, config, input_ch=3, input_ch_pos=12):
+    def __init__(self, config, input_ch=3, input_ch_color=3, input_ch_pos=12):
         super(ColorSDFNet, self).__init__()
         self.config = config
         self.color_net = ColorNet(config, 
-                input_ch=input_ch+input_ch_pos, 
+                input_ch=input_ch_color+input_ch_pos, 
                 geo_feat_dim=config['decoder']['geo_feat_dim'], 
                 hidden_dim_color=config['decoder']['hidden_dim_color'], 
                 num_layers_color=config['decoder']['num_layers_color'])

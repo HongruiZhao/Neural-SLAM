@@ -12,9 +12,11 @@ mapping:
   iters: 10
   cur_frame_iters: 0
   lr_embed: 0.01
+  lr_embed_color: 0.01
   lr_decoder: 0.01
   lr_rot: 0.001
   lr_trans: 0.001
+  lr_uncert: 1.0
   keyframe_every: 5
   map_every: 5
   n_pixels: 0.05
@@ -46,6 +48,17 @@ grid:
   voxel_color: 0.08
   voxel_sdf: 0.02
   oneGrid: True
+  #for CP decomposition 
+  sdf_coarse: 0.024
+  sdf_fine: 0.006
+  sdf_rank: 4
+  sdf_f_dim: 16
+  app_coarse: 0.024
+  app_fine: 0.003
+  app_rank: 4
+  app_f_dim: 48
+  uncertainty: True
+
 
 pos:
   enc: 'OneBlob'
@@ -77,6 +90,7 @@ training:
   depth_weight: 0.1
   sdf_weight: 1000
   fs_weight: 10
+  uncert_weight: 0.005
   eikonal_weight: 0
   smooth_weight: 0.000001
   smooth_pts: 32
@@ -100,4 +114,6 @@ mesh:
   voxel_eval: 0.05
   voxel_final: 0.02
   visualisation: False
+  save_uncert: True
+
   

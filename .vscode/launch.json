@@ -5,15 +5,26 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "My Python Debugger", // custom configuration name 
+            "name": "Simple Current File Debugger",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "NeuralSLAM main", // custom configuration name 
             "type": "debugpy",
             "request": "launch",
             "program": "${file}", // run current file 
-            "cwd":"${workspaceFolder}/mapping_test.py",
+            "cwd": "${workspaceFolder}/mapping_test",
             "console": "integratedTerminal", // debugger console does not support args
             //"args": "${command:pickArgs}", // take input arguments 
-            "args": ["--habitat_config", "/home/hongrui/Codes/Neural-SLAM/mapping_test.py/configs/habitat.yaml",
-                "--mapping_config", "/home/hongrui/Codes/Neural-SLAM/mapping_test.py/configs/mapping.yaml"],
+            "args": [
+                "--habitat_config",
+                "/home/hongrui/Codes/Neural-SLAM/mapping_test/configs/habitat.yaml",
+                "--mapping_config",
+                "/home/hongrui/Codes/Neural-SLAM/mapping_test/configs/mapping.yaml"
+            ],
             "stopOnEntry": true // automatically stop the debugger on the first line
         }
     ]
