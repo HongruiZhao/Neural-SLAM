@@ -141,7 +141,7 @@ class Mapping():
             loss += self.config['training']['smooth_weight'] * self.smoothness(self.config['training']['smooth_pts'], 
                                                                                   self.config['training']['smooth_vox'], 
                                                                                   margin=self.config['training']['smooth_margin'])
-        if uncert and self.config['grid']['uncertainty']:
+        if uncert and (self.config['grid']['uncertainty'] != 'none') :
             loss += self.config['training']['uncert_weight'] * ret['uncert_loss']
 
         return loss             
@@ -311,7 +311,7 @@ class Mapping():
         trainable_parameters = [{'params': self.model.decoder.parameters(), 'weight_decay': 1e-6, 'lr': self.config['mapping']['lr_decoder']},
                                     {'params': embed_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_embed']}]
             
-        if self.config['grid']['uncertainty']:
+        if self.config['grid']['uncertainty'] != 'none':
             trainable_parameters.append({'params': uncert_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_uncert']})
 
         if not self.config['grid']['oneGrid']:
@@ -335,7 +335,7 @@ class Mapping():
                         voxel_size=voxel_size, 
                         mesh_savepath=mesh_savepath)    
         
-        if self.config['mesh']['save_uncert'] and self.config['grid']['uncertainty']:
+        if self.config['mesh']['save_uncert'] and (self.config['grid']['uncertainty'] != 'none'):
             mesh_uncert_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], 
                                          f'agent_{self.agent_id}', 'mesh_uncert_track{}.ply'.format(i))
             extract_mesh(self.model.query_sdf, 

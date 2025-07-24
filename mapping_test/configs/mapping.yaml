@@ -15,10 +15,10 @@ mesh:
 grid:
   #enc: 'HashGrid'
   enc: 'tensor'
-  sdf_rank: 40
+  sdf_rank: 80
   app_rank: 40
   oneGrid: True
-  uncertainty: True
+  uncertainty: 'grid' #gird, tensor, or none
 
 cam: 
   H: 360
@@ -48,10 +48,10 @@ data:
   load_path: output/Apartment/apartment_centralized/agent_0/checkpoint12594.pt
 
 training:
-  rgb_weight: 0 #5.0 by default
+  rgb_weight: 5.0 #5.0 by default
   depth_weight: 0.1
   sdf_weight: 1000
-  fs_weight: 0 # 10 by default
+  fs_weight: 10 # 10 by default
   smooth_weight: 0.000001
   uncert_weight: 0.005 # Naruto = 0.005
 

@@ -18,12 +18,14 @@ class TensorCP(torch.nn.Module):
         self.feature_tensor_fine = torch.nn.Linear(cp_rank, tensor_f_dim, bias=False)
 
         self.uncertainty_flag = uncertainty
-        if self.uncertainty_flag:
+        if self.uncertainty_flag == 'tensor':
             uncert_rank = cp_rank
             # initial spatial uncertainty = 3
             scale = math.pow(3/uncert_rank, 1/3)
-            self.tensorxyz_uncert = \
+            self.xyz_uncert = \
                 self.init_uncer_tensors(uncert_rank, tensors_dim[0], scale)
+        elif self.uncertainty_flag == 'grid':
+            self.xyz_uncert = self.get_uncert_grid(tensors_dim[0])
 
 
     def get_uncert_grid(self, xyz_dim):
@@ -61,7 +63,6 @@ class TensorCP(torch.nn.Module):
             @param feature_tensor: the fourthe tensor 
             @return feature: (N,R)
         """
-        xyz_sampled = xyz_sampled.to(torch.float32)
         coordinate_line = torch.stack( [xyz_sampled[..., i] for i in range(3)] )
         coordinate_line = torch.stack((torch.zeros_like(coordinate_line), coordinate_line), dim=-1).detach().view(3, -1, 1, 2) # so last dimension will be (x,y)=(0,index)
 
@@ -81,15 +82,19 @@ class TensorCP(torch.nn.Module):
         """
             @param xyz_sampled: (N,3) query points coordinate
         """
-        grid = (xyz_smapled * 2 - 1)[None, None, None, ...]
-        uncert = torch.nn.functional.grid_sample(self.uncert_grid[None, None, ...], grid, align_corners=False)
+
+        uncert = torch.nn.functional.grid_sample(self.uncert_grid[None, None, ...], xyz_smapled[None, None, None, ...], 
+                                                 align_corners=False)
+        return uncert.squeeze()[..., None]
+
 
     def forward(self, xyz_sampled):
         """
-            @param xyz_sampled: (N,3) query points coordinate
+            @param xyz_sampled: (N,3) query points coordinate. [0,1] for tcnn_encoding
             @return cat_feature: (N,f_dim*2) 
             @return uncertainty: (N,1) 
         """
+        xyz_sampled = (xyz_sampled*2 - 1).to(torch.float32) # to [-1,1]
 
         coarse_feature = self.compute_feature(xyz_sampled, self.tensorxyz_coarse)
         coarse_feature = self.feature_tensor_coarse(coarse_feature)
@@ -100,8 +105,10 @@ class TensorCP(torch.nn.Module):
         cat_feature = torch.cat((coarse_feature, fine_feature), dim=-1)
 
         # (N,1)
-        if self.uncertainty_flag:
-            uncertainty = self.compute_feature(xyz_sampled, self.tensorxyz_uncert).sum(-1).unsqueeze(1)
+        if self.uncertainty_flag == 'tensor':
+            uncertainty = self.compute_feature(xyz_sampled, self.xyz_uncert).sum(-1).unsqueeze(1)
+        elif self.uncertainty_flag == 'grid':
+            uncertainty = self.compute_uncert_grid(xyz_sampled)
         else:
             uncertainty = None
         

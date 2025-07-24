@@ -39,40 +39,17 @@ def get_grid_resolution(cfg):
     return N_l_list[0], params_in_level_list[0]
 
 
-def process_uncertainty_file(file_path, cfg, N_l, params_in_level, vis_type, neighbor=None):
-    """
-        @return : rgb, vertices
-    """
-    # get color 
-    if vis_type == 'uncertainty':
-        uncertainty_tensor = torch.load(file_path)[:params_in_level]
-        uncertainty_tensor = uncertainty_tensor.view(-1,2).sum(-1) 
-        uncertainty_tensor /= torch.max(uncertainty_tensor) # normalize
-        rgb = plt.cm.cool(uncertainty_tensor.cpu().numpy())[:,:3]
-    elif vis_type =='Rho':
-        Rho_tensor = torch.load(file_path)[neighbor][:params_in_level]
-        Rho_tensor = Rho_tensor.view(-1,2).sum(-1)
-        Rho_tensor /= torch.max(Rho_tensor)
-        rgb = plt.cm.hot(Rho_tensor.cpu().numpy())[:,:3]
 
-    # get grid 
-    bbox = np.asarray(cfg['mapping']['bound'])
-    x = np.linspace( bbox[0,0], bbox[0,1], num=N_l)
-    y = np.linspace( bbox[1,0], bbox[1,1], num=N_l)
-    z = np.linspace( bbox[2,0], bbox[2,1], num=N_l)
-    grid = np.meshgrid(z, y, x, indexing='ij')
-    vertices = np.stack(grid, axis=-1).reshape(-1, 3)[:,::-1] # so that the 2nd dimension order is (x,y,z)
-
-    return rgb, vertices
-
-
-
-def get_latest_mesh(directory):
-    list_of_files = glob.glob(os.path.join(directory, 'mesh_uncert_track*.ply'))
+def get_latest_mesh(directory, show_uncertainty):
+    if show_uncertainty:
+        filename = 'mesh_uncert_track'
+    else:
+        filename = 'mesh_track'
+    list_of_files = glob.glob(os.path.join(directory, filename+'*.ply'))
     if not list_of_files:
         return None
 
-    latest_file = max(list_of_files, key=lambda f: int(f.split('mesh_uncert_track')[-1].split('.ply')[0]))
+    latest_file = max(list_of_files, key=lambda f: int(f.split(filename)[-1].split('.ply')[0]))
     return latest_file
 
 
@@ -82,15 +59,6 @@ def get_latest_ckpt(directory):
         return None
 
     latest_file = max(list_of_files, key=lambda f: int(f.split('checkpoint_')[-1].split('.pt')[0]))
-    return latest_file
-
-
-def get_latest_uncertainty(directory):
-    list_of_files = glob.glob(os.path.join(directory, 'uncertain_track*.pt'))
-    if not list_of_files:
-        return None
-
-    latest_file = max(list_of_files, key=lambda f: int(f.split('uncertain_track')[-1].split('.pt')[0]))
     return latest_file
 
 
@@ -138,11 +106,6 @@ def visualize_ply_dynamic(directory, show_uncertainty, cfg):
             vis.get_render_option().mesh_show_back_face = True
         else:
             vis.get_render_option().mesh_show_back_face = False
-
-        # ready for uncertainty visualization 
-        if args.show_uncertainty: 
-            N_l, params_in_level = get_grid_resolution(cfg) #TODO: for now we only visualize level 0 grid
-            print(f'N_l = {N_l}, params_in_level = {params_in_level}')
             
         # add coordinate frame
         coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
@@ -158,18 +121,12 @@ def visualize_ply_dynamic(directory, show_uncertainty, cfg):
         wait_time = 0.5 # in case read before a file is ready
         current_mesh_path = None
         current_ckpt_path = None
-        current_uncertainty_path = None 
         mesh = None  # Initialize mesh outside the loop
-        uncertainty_spheres = None
         view_params = None
         cam_actor = None
         while True:
-            latest_mesh_path = get_latest_mesh(directory)
+            latest_mesh_path = get_latest_mesh(directory, show_uncertainty)
             latest_ckpt_path = get_latest_ckpt(directory)
-            if args.show_uncertainty: 
-                latest_uncertainty_path = get_latest_uncertainty(directory)
-            else:
-                latest_uncertainty_path = None
 
             # update camera actor 
             if latest_ckpt_path != current_ckpt_path:
@@ -193,34 +150,6 @@ def visualize_ply_dynamic(directory, show_uncertainty, cfg):
                         cam_actor.transform(pose_change)
                         vis.update_geometry(cam_actor)
                         pose_prev = pose
-
-            # update uncertainty
-            if latest_uncertainty_path != current_uncertainty_path:
-                current_uncertainty_path = latest_uncertainty_path
-
-                if uncertainty_spheres is not None:
-                    vis.remove_geometry(uncertainty_spheres)
-                    
-                if latest_uncertainty_path is not None:
-                    def create_sphere_mesh(radius, center, rgb):
-                        sphere = o3d.geometry.TriangleMesh.create_sphere(radius)
-                        sphere.translate(center)
-                        sphere.paint_uniform_color(rgb)
-                        return sphere
-                    
-                    def combine_meshes(meshes):
-                        """Combine multiple meshes into one mesh."""
-                        combined_mesh = o3d.geometry.TriangleMesh()
-                        for mesh in meshes:
-                            combined_mesh += mesh
-
-                        return combined_mesh
-                    radius = 0.025
-                    time.sleep(wait_time)
-                    rgb, vertices = process_uncertainty_file(latest_uncertainty_path, cfg, N_l, params_in_level, vis_type='uncertainty')
-                    spheres = [create_sphere_mesh(radius, vertices[i], rgb[i]) for i in range(rgb.shape[0])]
-                    uncertainty_spheres = combine_meshes(spheres) # add one mesh to visualizer in one go is much faster than add these spheres one by one 
-                    vis.add_geometry(uncertainty_spheres)
 
             # update mesh 
             if latest_mesh_path != current_mesh_path:

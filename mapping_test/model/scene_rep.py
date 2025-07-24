@@ -128,7 +128,7 @@ class JointEncoding(nn.Module):
         if white_bkgd:
             rgb_map = rgb_map + (1.-acc_map[...,None])
 
-        if self.uncertainty_flag:
+        if self.uncertainty_flag != 'none':
             uncert = F.softplus(raw[...,4]) + 0.01 # 0.01 is the min uncertainty
             uncert_map = torch.sum(weights*uncert*uncert, -1)
         else:
@@ -187,14 +187,14 @@ class JointEncoding(nn.Module):
         embe_pos = self.embedpos_fn(inputs_flat)
         if not self.config['grid']['oneGrid']:
             embed_color, _ = self.embed_fn_color(inputs_flat)
-            if self.uncertainty_flag:
+            if self.uncertainty_flag != 'none':
                 return torch.cat(
                     (self.decoder(embed, embe_pos, embed_color), uncert),
                     dim=-1)
             else:
                 return self.decoder(embed, embe_pos, embed_color)
         
-        if self.uncertainty_flag:
+        if self.uncertainty_flag != 'none':
             return torch.cat(
                     (self.decoder(embed, embe_pos), uncert),
                     dim=-1)
@@ -363,7 +363,7 @@ class JointEncoding(nn.Module):
             "psnr": psnr,
         }
 
-        if self.uncertainty_flag:
+        if self.uncertainty_flag != 'none':
             uncert_map = rend_dict['uncert_map']
             assert uncert_map.min() > 0
             uncert_map = uncert_map[valid_depth_mask]
