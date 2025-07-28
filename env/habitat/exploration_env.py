@@ -33,22 +33,81 @@ from env.habitat.utils.supervision import HabitatMaps
 
 from model import get_grid
 
-import omegaconf
+import yaml
+from .ramen_mapping import data_loading, get_camera_rays, Mapping
 
 
-def _preprocess_depth(depth):
-    depth = depth[:, :, 0]*1
-    mask2 = depth > 0.99
-    depth[mask2] = 0.
+def load_config(path, default_path=None):
+    """
+    Loads config file.
+    Args:
+        path (str): path to config file.
+        default_path (str, optional): whether to use default path. Defaults to None.
+    Returns:
+        cfg (dict): config dict.
+    """
+    # load configuration from file itself
+    with open(path, 'r') as f:
+        cfg_special = yaml.full_load(f)
 
-    for i in range(depth.shape[1]):
-        depth[:,i][depth[:,i] == 0.] = depth[:,i].max()
+    # check if we should inherit from a config
+    inherit_from = cfg_special.get('inherit_from')
 
-    mask1 = depth == 0
-    depth[mask1] = np.NaN
-    #depth = depth*1000. 
-    depth = depth*100.
-    return depth
+    # if yes, load this config first as default
+    # if no, use the default_path
+    if inherit_from is not None:
+        cfg = load_config(inherit_from, default_path)
+    elif default_path is not None:
+        with open(default_path, 'r') as f:
+            cfg = yaml.full_load(f)
+    else:
+        cfg = dict()
+
+    # include main configuration
+    update_recursive(cfg, cfg_special)
+
+    return cfg
+
+
+def update_recursive(dict1, dict2):
+    """
+    Update two config dictionaries recursively.
+    Args:
+        dict1 (dict): first dictionary to be updated.
+        dict2 (dict): second dictionary which entries should be used.
+    """
+    for k, v in dict2.items():
+        if k not in dict1:
+            dict1[k] = dict()
+        if isinstance(v, dict):
+            update_recursive(dict1[k], v)
+        else:
+            dict1[k] = v
+
+
+def get_camera_intrinsics(sim, sensor_name):
+    """
+        https://github.com/facebookresearch/habitat-sim/issues/2439
+    """
+    # get camera height and width 
+    H, W = sim._sensors[sensor_name]._sensor_object.specification().resolution
+
+    # Get render camera
+    render_camera = sim._sensors[sensor_name]._sensor_object.render_camera
+
+    # Get projection matrix
+    projection_matrix = render_camera.projection_matrix
+
+    # Get resolution
+    viewport_size = render_camera.viewport
+
+    # Intrinsic calculation
+    fx = projection_matrix[0, 0] * viewport_size[0] / 2.0
+    fy = projection_matrix[1, 1] * viewport_size[1] / 2.0
+    cx = (projection_matrix[2, 0] + 1.0) * viewport_size[0] / 2.0
+    cy = (projection_matrix[2, 1] + 1.0) * viewport_size[1] / 2.0
+
+    return fx, fy, cx, cy, H, W 
 
 
 class Exploration_Env(habitat.RLEnv):
@@ -66,21 +125,6 @@ class Exploration_Env(habitat.RLEnv):
 
         self.rank = rank
 
-        # self.sensor_noise_fwd = \
-        #         pickle.load(open("noise_models/sensor_noise_fwd.pkl", 'rb'))
-        # self.sensor_noise_right = \
-        #         pickle.load(open("noise_models/sensor_noise_right.pkl", 'rb'))
-        # self.sensor_noise_left = \
-        #         pickle.load(open("noise_models/sensor_noise_left.pkl", 'rb'))
-
-        # HabitatSimActions.extend_action_space("NOISY_FORWARD")
-        # HabitatSimActions.extend_action_space("NOISY_RIGHT")
-        # HabitatSimActions.extend_action_space("NOISY_LEFT")
-
-        # omegaconf.OmegaConf.set_readonly(config_env, True)
-        # config_env.SIMULATOR.ACTION_SPACE_CONFIG = \
-        # z        "CustomActionSpaceConfiguration"
-        # omegaconf.OmegaConf.set_readonly(config_env, False)
 
         """
             initialize parent class RLEnv 
@@ -108,6 +152,21 @@ class Exploration_Env(habitat.RLEnv):
         self.scene_name = None
         self.maps_dict = {}
         self.accumulated_ratio = 0
+
+
+        # for neural implicit mapping 
+        self.nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
+        fx, fy, cx, cy, self.img_H, self.img_W = get_camera_intrinsics(
+            self.habitat_env.sim, 'depth')
+        self.rays_d = get_camera_rays(self.img_H, self.img_W, fx, fy, cx, cy)
+        self.num_rays_to_save = int(self.img_H*self.img_W
+                                *self.nerf_map_cfg['mapping']['n_pixels'])
+        self.dataset_info = {'num_frames':self.args.max_episode_length, 
+                        'num_rays_to_save':self.num_rays_to_save, 
+                        'H':self.img_H, 'W':self.img_W }
+        self.nerf_mapper = None # will get created at reset 
+        self.exp_name = self.nerf_map_cfg['data']['exp_name']
+        
 
 
     # def randomize_env(self):
@@ -180,6 +239,31 @@ class Exploration_Env(habitat.RLEnv):
         #TODO
         #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
         depth = obs['depth'][:, :, 0] * 100 # m to cm 
+
+        # Initialize neural implicit map 
+        if self.episode_no % 2 == 0: # reset is called twice per episode?
+            sim = self.habitat_env.sim
+            scene_aabb = sim.get_active_scene_graph().get_root_node().cumulative_bb
+            max = list(scene_aabb.max)
+            min = list(scene_aabb.min)
+            self.nerf_map_cfg['mapping']['bound'] = \
+                [ [min, max] for min, max in zip(min,max)]
+            self.nerf_map_cfg['mapping']['marching_cubes_bound'] = \
+                self.nerf_map_cfg['mapping']['bound']
+            self.nerf_map_cfg['data']['exp_name'] = \
+                 self.exp_name + '_ep' + str(self.episode_no)
+            self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
+                                    dataset_info=self.dataset_info)
+            # first frame mapping 
+            agent_state = \
+                self.habitat_env.sim.get_agent_state(0).sensor_states['rgb']
+            batch = data_loading(obs['rgb'], obs['depth'][...,0],
+                                agent_state.position,
+                                agent_state.rotation,
+                                step=self.timestep,
+                                rays_d=self.rays_d)
+            self.nerf_mapper.run(self.timestep, batch) 
+
 
         # Initialize map and pose
         self.map_size_cm = args.map_size_cm
@@ -302,6 +386,15 @@ class Exploration_Env(habitat.RLEnv):
         # return agent_view_cropped, map_gt, agent_view_explored, explored_gt
         fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
+        # neural implicit mapping
+        agent_state = \
+            self.habitat_env.sim.get_agent_state(0).sensor_states['rgb']
+        batch = data_loading(obs['rgb'], obs['depth'][...,0],
+                             agent_state.position,
+                             agent_state.rotation,
+                             step=self.timestep,
+                             rays_d=self.rays_d)
+        self.nerf_mapper.run(self.timestep, batch) 
 
 
         # Update collision map

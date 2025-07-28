@@ -198,9 +198,10 @@ if __name__ == '__main__':
     parser.add_argument('--config', default='configs/mapping.yaml', type=str, help='Path to config file.')
     parser.add_argument('--show_uncertainty',
                         action='store_true', help='visualize grid uncertainty')
+    parser.add_argument('--agent', default=0, type=int, help='agent id')
     args = parser.parse_args()
 
     cfg = config.load_config(args.config)
-    directory = os.path.join(cfg['data']['output'], cfg['data']['exp_name'], 'agent_0')
+    directory = os.path.join(cfg['data']['output'], cfg['data']['exp_name'], f'agent_{args.agent}')
     print(f'Save path is {directory}')
     visualize_ply_dynamic(directory, args.show_uncertainty, cfg)

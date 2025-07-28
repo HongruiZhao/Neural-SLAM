@@ -1,0 +1,44 @@
+inherit_from: env/habitat/configs/replica.yaml
+mapping:
+  bound:  [[-15,2],[-1.5,4],[-10,2]] 
+  marching_cubes_bound:  [[-15,2],[-1.5,4],[-10,2]] 
+  map_every: 1
+  lr_uncert: 0.01
+  first_mesh: False # don't save first mesh
+  
+
+mesh: 
+  render_color: True
+  vis: 25 #25
+  voxel: 0.02 
+  save_uncert: True
+  vis: 5000 # don't save meshes 
+
+grid:
+  #enc: 'HashGrid'
+  enc: 'tensor'
+  sdf_rank: 40
+  app_rank: 40
+  oneGrid: True
+  uncertainty: 'grid' #gird, tensor, or none
+
+cam: 
+  crop_edge: 0
+  near: 0
+  far: 5
+  depth_trunc: 10.0 # this is for calculating sdf loss
+  max_depth: 10.0 # where I cut my depth pixel value
+
+data:
+  output: mapping_test/output/RL
+  exp_name: vectest_july28
+
+training:
+  rgb_weight: 5.0 #5.0 by default
+  depth_weight: 0.1
+  sdf_weight: 1000
+  fs_weight: 10 # 10 by default
+  smooth_weight: 0.000001
+  uncert_weight: 0.005 # Naruto = 0.005
+
+

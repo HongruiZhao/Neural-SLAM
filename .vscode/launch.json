@@ -12,7 +12,7 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "NeuralSLAM main", // custom configuration name 
+            "name": "Mapping Test", // custom configuration name 
             "type": "debugpy",
             "request": "launch",
             "program": "${file}", // run current file 
@@ -24,6 +24,19 @@
                 "/home/hongrui/Codes/Neural-SLAM/mapping_test/configs/habitat.yaml",
                 "--mapping_config",
                 "/home/hongrui/Codes/Neural-SLAM/mapping_test/configs/mapping.yaml"
+            ],
+            "stopOnEntry": true // automatically stop the debugger on the first line
+        },
+        {
+            "name": "NeuralSLAM main", // custom configuration name 
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}", // run current file 
+            "console": "integratedTerminal", // debugger console does not support args
+            //"args": "${command:pickArgs}", // take input arguments 
+            "args": [
+                "--config",
+                "configs/eval_vis.txt",
             ],
             "stopOnEntry": true // automatically stop the debugger on the first line
         }
