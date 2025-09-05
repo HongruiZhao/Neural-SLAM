@@ -16,6 +16,7 @@ class TensorViewTransformer(nn.Module):
         rank: int,
         tensor_lengths: list[int],
         attn_dim: int = 128,
+        out_dim: int = 16,
         depth: int = 4,
         heads: int = 8,
         dim_head: int = 64,
@@ -29,6 +30,7 @@ class TensorViewTransformer(nn.Module):
         @param tensor_lengths: A list or tuple of three integers representing the
                                spatial dimensions (lengths) of the X, Y, and Z tensors.
         @param attn_dim: The dimension of the attention mechanism.
+        @param out_dim: output dimension
         @param depth: The total number of transformer layers. Must be even.
         @param heads: The number of attention heads.
         @param dim_head: The dimension of each attention head.
@@ -71,7 +73,7 @@ class TensorViewTransformer(nn.Module):
             )
 
         # Decoder to produce 3D heatmap
-        self.decoder = DenseBlock(attn_dim, rank, norm=None, activation=None)
+        self.decoder = DenseBlock(attn_dim, out_dim, norm=None, activation=None)
 
 
     def forward(self, views: list[torch.Tensor]):
@@ -79,7 +81,7 @@ class TensorViewTransformer(nn.Module):
 
         @param views: A list of 3 tensors from TensorCP, each with shape (B, rank, length, 1).
                       Order should be [x_tensor, y_tensor, z_tensor].
-        @return: A tensor representing the 3D translation heatmap of shape (B, L_x, L_y, L_z).
+        @return: (B, L_x, L_y, L_z).
         """
 
         # projection and position 
@@ -112,11 +114,11 @@ class TensorViewTransformer(nn.Module):
         # 3D heatmap
         x_heat, y_heat, z_heat = \
         torch.split(decoded_tokens, self.tensor_lengths, dim=1)
-        heatmap_3d = torch.einsum('bxr, byr, bzr ->bxyz', 
-                                  x_heat, y_heat, z_heat)
+        y_mean = torch.mean(y_heat, dim=1)
+        heatmap_2D = torch.einsum('bxr, bzr, br -> bxzr', x_heat, z_heat, y_mean)
 
 
-        return heatmap_3d
+        return heatmap_2D
 
 
 

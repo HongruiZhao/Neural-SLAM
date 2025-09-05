@@ -6,9 +6,76 @@ import numpy as np
 
 from utils.distributions import Categorical, DiagGaussian
 from utils.model import get_grid, ChannelPool, Flatten, NNBase
-
+from mvt.tensor_view_transformer import TensorViewTransformer
 
 # Global Policy model code
+class Global_Policy_Tensor(NNBase):
+
+    def __init__(self, tformer_args,recurrent=False, hidden_size=512):
+        super(Global_Policy_Tensor, self).__init__(recurrent, hidden_size,
+                                            hidden_size)
+        self.tensor_former = TensorViewTransformer(
+            rank= tformer_args['rank'],
+            tensor_lengths= tformer_args['tensor_lengths'],
+            attn_dim = tformer_args['attn_dim'],
+            out_dim= tformer_args['out_dim'],
+            depth= tformer_args['depth'],
+            heads= tformer_args['heads'],
+            dim_head= tformer_args['dim_head'],
+        )
+        x_dim, y_dim, z_dim = tformer_args['tensor_lengths'] # y axis is up
+        map_2d_dim = tformer_args['out_dim']
+
+        out_size = int( (x_dim // 16.) * (z_dim // 16.) )
+
+        self.main = nn.Sequential(
+            nn.MaxPool2d(2),
+            nn.Conv2d(map_2d_dim, 32, 3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, 3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, 3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(128, 64, 3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 32, 3, stride=1, padding=1),
+            nn.ReLU(),
+            Flatten()
+        )
+
+        self.linear1 = nn.Linear(out_size * 32 + 8, hidden_size)
+        self.linear2 = nn.Linear(hidden_size, 256)
+        self.critic_linear = nn.Linear(256, 1)
+        self.orientation_emb = nn.Embedding(72, 8)
+        self.train()
+
+    def forward(self, inputs, rnn_hxs, masks, extras):
+        """
+            @param inputs: A list of 3 tensors from TensorCP,
+                each with shape (B, rank, length, 1).
+                Order should be [x_tensor, y_tensor, z_tensor].
+        """
+        map_2d = self.tensor_former(inputs) # (B, Lx, Ly, C)
+        map_2d = map_2d.permute(0, 3, 1, 2) # (B, C, Lx, Ly)
+
+        x = self.main(map_2d)
+        orientation_emb = self.orientation_emb(extras).squeeze(1)
+        x = torch.cat((x, orientation_emb), 1)
+
+        x = nn.ReLU()(self.linear1(x))
+        if self.is_recurrent:
+            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+
+        x = nn.ReLU()(self.linear2(x))
+
+        return self.critic_linear(x).squeeze(-1), x, rnn_hxs
+
+
+
+
 class Global_Policy(NNBase):
 
     def __init__(self, input_shape, recurrent=False, hidden_size=512,
@@ -387,28 +454,42 @@ class Local_IL_Policy(NNBase):
 # https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail/blob/master/a2c_ppo_acktr/model.py#L15
 class RL_Policy(nn.Module):
 
-    def __init__(self, obs_shape, action_space, model_type=0,
-                 base_kwargs=None):
+    def __init__(self, obs_shape, action_space, 
+                 model_type='NeuralSLAM',base_kwargs=None,
+                 tensor_former_args=None):
 
         super(RL_Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
 
-        if model_type == 0:
+        self.model_type = model_type
+        self.tensor_lengths = None # For splitting views
+
+        if model_type == 'NeuralSLAM':
             self.network = Global_Policy(obs_shape, **base_kwargs)
+        elif model_type == 'lena':
+            self.network = Global_Policy_Tensor(tensor_former_args,
+                                                **base_kwargs)
+            self.tensor_lengths = tensor_former_args['tensor_lengths']
         else:
             raise NotImplementedError
 
+        actor_feature_size = 256 # From Global_Policy* network's linear2 layer
         if action_space.__class__.__name__ == "Discrete":
             num_outputs = action_space.n
-            self.dist = Categorical(self.network.output_size, num_outputs)
+            self.dist = Categorical(actor_feature_size, num_outputs)
         elif action_space.__class__.__name__ == "Box":
             num_outputs = action_space.shape[0]
-            self.dist = DiagGaussian(self.network.output_size, num_outputs)
+            self.dist = DiagGaussian(actor_feature_size, num_outputs)
         else:
             raise NotImplementedError
 
-        self.model_type = model_type
+    def _split_views(self, inputs):
+        inputs = inputs.squeeze(-1) # (B, rank, sum(lengths))
+        views_unarranged = torch.split(inputs, self.tensor_lengths, dim=2)
+        # Rearrange back to (B, rank, length, 1)
+        views = [v.unsqueeze(-1) for v in views_unarranged]
+        return views
 
     @property
     def is_recurrent(self):
@@ -416,10 +497,13 @@ class RL_Policy(nn.Module):
 
     @property
     def rec_state_size(self):
-        """Size of rnn_hx."""
+        """Size of rnn_hx.""" 
         return self.network.rec_state_size
 
     def forward(self, inputs, rnn_hxs, masks, extras):
+        if self.model_type == 'lena':
+            inputs = self._split_views(inputs)
+
         if extras is None:
             return self.network(inputs, rnn_hxs, masks)
         else:
@@ -444,7 +528,6 @@ class RL_Policy(nn.Module):
         return value
 
     def evaluate_actions(self, inputs, rnn_hxs, masks, action, extras=None):
-
         value, actor_features, rnn_hxs = self(inputs, rnn_hxs, masks, extras)
         dist = self.dist(actor_features)
 

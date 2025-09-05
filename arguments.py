@@ -92,7 +92,6 @@ def get_args():
                         help="horizontal field of view in degrees")
     parser.add_argument('--randomize_env_every', type=int, default=1000,
                         help="randomize scene in a thread every k episodes")
-
     ## Global Policy RL PPO Hyperparameters
     parser.add_argument('--global_lr', type=float, default=2.5e-5,
                         help='global learning rate (default: 2.5e-5)')
@@ -165,10 +164,25 @@ def get_args():
     parser.add_argument('-ot', '--obs_threshold', type=float, default=1)
     parser.add_argument('-ct', '--collision_threshold', type=float, default=0.20)
     parser.add_argument('-nl', '--noise_level', type=float, default=1.0)
-
     # for debugging 
     parser.add_argument('--debug', type=int, default=0,
                         help='if enter debug mode(default: 0)')
+    # for active neural implicit mapping 
+    parser.add_argument("--global_arch", type=str,
+                        default="NeuralSLAM",
+                        help="what architecture to use for global policy.\
+                        'NeuralSLAM' or 'lena'.")
+    parser.add_argument('--tf_attn_dim', type=int, default=128,
+                        help='attention dimension of tensor transfomer')
+    parser.add_argument('--tf_out_dim', type=int, default=16,
+                        help='output dimension of tensor transfomer')
+    parser.add_argument('--tf_depth', type=int, default=4,
+                        help='depth of tensor transfomer')
+    parser.add_argument('--tf_heads', type=int, default=8,
+                        help='num of heads of tensor transfomer')
+    parser.add_argument('--tf_dim_head', type=int, default=64,
+                        help='dim of heads of tensor transfomer')
+
 
 
     # parse arguments

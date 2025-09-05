@@ -57,9 +57,9 @@ class PPO():
 
             for sample in data_generator:
 
-                value_preds = sample['value_preds']
-                returns = sample['returns']
-                adv_targ = sample['adv_targ']
+                value_preds = sample['value_preds'] 
+                returns = sample['returns'] 
+                adv_targ = sample['adv_targ'] 
 
                 # Reshape to do in a single forward pass for all steps
                 values, action_log_probs, dist_entropy, _ = \

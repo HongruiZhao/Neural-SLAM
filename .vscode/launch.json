@@ -36,7 +36,7 @@
             //"args": "${command:pickArgs}", // take input arguments 
             "args": [
                 "--config",
-                "configs/eval_vis.txt",
+                "configs/train.txt",
             ],
             "stopOnEntry": true // automatically stop the debugger on the first line
         }

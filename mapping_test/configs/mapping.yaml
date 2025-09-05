@@ -1,7 +1,9 @@
 inherit_from: configs/replica.yaml
 mapping:
-  bound:  [[-15,2],[-1.5,4],[-10,2]] 
-  marching_cubes_bound:  [[-15,2],[-1.5,4],[-10,2]] 
+  # bound:  [[-15,2],[-1.5,4],[-10,2]] 
+  # marching_cubes_bound:  [[-15,2],[-1.5,4],[-10,2]] 
+  bound:  [[-10,10],[-1.5,4],[-10,10]] 
+  marching_cubes_bound:  [[-10,10],[-1.5,4],[-10,10]] 
   map_every: 1
   lr_uncert: 0.01
   
@@ -15,10 +17,10 @@ mesh:
 grid:
   #enc: 'HashGrid'
   enc: 'tensor'
-  sdf_rank: 80
+  sdf_rank: 40
   app_rank: 40
   oneGrid: True
-  uncertainty: 'grid' #gird, tensor, or none
+  uncertainty: 'none' #gird, tensor, or none
 
 cam: 
   H: 360
@@ -44,7 +46,7 @@ data:
   downsample: 1
   sc_factor: 1
   output: output/RL
-  exp_name: vectest_july281234
+  exp_name: aug_11_vis
   load_path: output/Apartment/apartment_centralized/agent_0/checkpoint12594.pt
 
 training:

@@ -72,7 +72,7 @@ class AddBias(nn.Module):
 # https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail/blob/master/a2c_ppo_acktr/model.py#L10
 class Flatten(nn.Module):
     def forward(self, x):
-        return x.view(x.size(0), -1)
+        return x.reshape(x.size(0), -1)
 
 
 # https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail/blob/master/a2c_ppo_acktr/model.py#L82

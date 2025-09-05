@@ -29,6 +29,8 @@ import matplotlib.pyplot as plt
 from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
 
+# for neural implicit mapping 
+from env.habitat.exploration_env import load_config 
 
 args = get_args()
 
@@ -208,12 +210,29 @@ def main():
     init_map_and_pose()
 
     # Global policy observation space
-    g_observation_space = gym.spaces.Box(0, 1,
-                                         (8,
-                                          local_w,
-                                          local_h), dtype='uint8')
+    if args.global_arch == 'lena':
+        nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
+        bounding_box = np.array(nerf_map_cfg['mapping']['bound'])
+        diff = bounding_box[:,1] - bounding_box[:,0]
+        sdf_coarse = (diff / nerf_map_cfg['grid']['sdf_coarse']).astype(np.uint16)
+        rank = nerf_map_cfg['grid']['sdf_rank']
+        tensor_lengths = sdf_coarse.tolist()
+        total_length = sum(tensor_lengths)
+        g_observation_space = gym.spaces.Box(0, 1,
+                                             (rank,
+                                              total_length,
+                                              1), dtype='float32') 
+    else:
+        nerf_map_cfg = None
+        sdf_coarse = None
+        g_observation_space = gym.spaces.Box(0, 1,
+                                             (8,
+                                              local_w,
+                                              local_h), dtype='uint8')
 
     # Global policy action space
+    # action space is (x,y) coordinate
+    # with the same bound [0,1] for both dimensions
     g_action_space = gym.spaces.Box(low=0.0, high=1.0,
                                     shape=(2,), dtype=np.float32)
 
@@ -233,11 +252,30 @@ def main():
                                    args.slam_optimizer)
 
     # Global policy
-    g_policy = RL_Policy(g_observation_space.shape, g_action_space,
-                         base_kwargs={'recurrent': args.use_recurrent_global,
-                                      'hidden_size': g_hidden_size,
-                                      'downscaling': args.global_downscaling
-                                      }).to(device)
+    if args.global_arch == 'NeuralSLAM':
+        g_policy = RL_Policy(g_observation_space.shape, g_action_space,
+                            model_type='NeuralSLAM',
+                            base_kwargs={'recurrent': args.use_recurrent_global,
+                                        'hidden_size': g_hidden_size,
+                                        'downscaling': args.global_downscaling
+                                        }).to(device)
+    elif args.global_arch == 'lena':
+        g_policy = RL_Policy(g_observation_space.shape, g_action_space,
+                            model_type='lena',
+                            tensor_former_args={
+                                'rank': nerf_map_cfg['grid']['sdf_rank'],
+                                'tensor_lengths': sdf_coarse.tolist(),
+                                'attn_dim': args.tf_attn_dim,
+                                'out_dim': args.tf_out_dim,
+                                'depth': args.tf_depth,
+                                'heads': args.tf_heads,
+                                'dim_head': args.tf_dim_head,
+                            },
+                            base_kwargs={'recurrent': args.use_recurrent_global,
+                                        'hidden_size': g_hidden_size,
+                                        }).to(device)
+    else:
+        raise NotImplementedError
     g_agent = algo.PPO(g_policy, args.clip_param, args.ppo_epoch,
                        args.num_mini_batch, args.value_loss_coef,
                        args.entropy_coef, lr=args.global_lr, eps=args.eps,
@@ -325,18 +363,23 @@ def main():
 
     # Compute Global policy input
     locs = local_pose.cpu().numpy()
-    global_input = torch.zeros(num_scenes, 8, local_w, local_h)
     global_orientation = torch.zeros(num_scenes, 1).long()
 
-    for e in range(num_scenes):
-        r, c = locs[e, 1], locs[e, 0]
-        loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
-                        int(c * 100.0 / args.map_resolution)] # convert m to cm and find current pose bin
-        local_map[e, 2:, loc_r - 1:loc_r + 2, loc_c - 1:loc_c + 2] = 1. # set current and pass agent position channels to be the current position
-        global_orientation[e] = int((locs[e, 2] + 180.0) / 5.) # -180~180 to 0~360, digitize
+    if args.global_arch == 'lena':
+        global_input = \
+            torch.cat([infos[e]['tensors'] 
+                for e in range(num_scenes)], dim=0).to(device)
+    else:
+        global_input = torch.zeros(num_scenes, 8, local_w, local_h)
+        for e in range(num_scenes):
+            r, c = locs[e, 1], locs[e, 0]
+            loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
+                            int(c * 100.0 / args.map_resolution)] # convert m to cm and find current pose bin
+            local_map[e, 2:, loc_r - 1:loc_r + 2, loc_c - 1:loc_c + 2] = 1. # set current and pass agent position channels to be the current position
+            global_orientation[e] = int((locs[e, 2] + 180.0) / 5.) # -180~180 to 0~360, digitize
 
-    global_input[:, 0:4, :, :] = local_map.detach()
-    global_input[:, 4:, :, :] = nn.MaxPool2d(args.global_downscaling)(full_map)
+        global_input[:, 0:4, :, :] = local_map.detach()
+        global_input[:, 4:, :, :] = nn.MaxPool2d(args.global_downscaling)(full_map)
 
     g_rollouts.obs[0].copy_(global_input)
     g_rollouts.extras[0].copy_(global_orientation)
@@ -512,9 +555,15 @@ def main():
                 locs = local_pose.cpu().numpy()
                 for e in range(num_scenes):
                     global_orientation[e] = np.clip(int((locs[e, 2] + 180.0) / 5.), 0, 71)
-                global_input[:, 0:4, :, :] = local_map
-                global_input[:, 4:, :, :] = \
-                    nn.MaxPool2d(args.global_downscaling)(full_map)
+
+                if args.global_arch == 'lena':
+                   global_input = \
+                    torch.cat([infos[e]['tensors'] 
+                        for e in range(num_scenes)], dim=0).to(device)
+                else:
+                    global_input[:, 0:4, :, :] = local_map
+                    global_input[:, 4:, :, :] = \
+                        nn.MaxPool2d(args.global_downscaling)(full_map)
 
                 # Get exploration reward and metrics
                 g_reward = torch.from_numpy(np.asarray(
@@ -645,7 +694,7 @@ def main():
 
             # ------------------------------------------------------------------
             # Train Global Policy
-            if g_step % args.num_global_steps == args.num_global_steps - 1 \
+            if g_step == args.num_global_steps - 1 \
                     and l_step == args.num_local_steps - 1:
                 if args.train_global:
                     g_next_value = g_policy.get_value(
@@ -683,6 +732,8 @@ def main():
                 writer.add_scalar('global loss/value', np.mean(g_value_losses), total_num_steps)
                 writer.add_scalar('global loss/action', np.mean(g_action_losses), total_num_steps)
                 writer.add_scalar('global loss/dist', np.mean(g_dist_entropies), total_num_steps)
+
+                #torch.cuda.memory._dump_snapshot( os.path.join(log_dir, "GPU_memory.pickle") )
 
             # ------------------------------------------------------------------
 

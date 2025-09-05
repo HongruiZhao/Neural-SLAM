@@ -236,22 +236,13 @@ class Exploration_Env(habitat.RLEnv):
         if self.args.frame_width != self.args.env_frame_width:
             rgb = np.asarray(self.res(rgb))
         state = rgb.transpose(2, 0, 1)
-        #TODO
         #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
         depth = obs['depth'][:, :, 0] * 100 # m to cm 
 
-        # Initialize neural implicit map 
-        if self.episode_no % 2 == 0: # reset is called twice per episode?
-            sim = self.habitat_env.sim
-            scene_aabb = sim.get_active_scene_graph().get_root_node().cumulative_bb
-            max = list(scene_aabb.max)
-            min = list(scene_aabb.min)
-            self.nerf_map_cfg['mapping']['bound'] = \
-                [ [min, max] for min, max in zip(min,max)]
-            self.nerf_map_cfg['mapping']['marching_cubes_bound'] = \
-                self.nerf_map_cfg['mapping']['bound']
+        # Initialize neural implicit map
+        if args.global_arch == 'lena': 
             self.nerf_map_cfg['data']['exp_name'] = \
-                 self.exp_name + '_ep' + str(self.episode_no)
+                    self.exp_name + '_ep' + str(self.episode_no)
             self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
                                     dataset_info=self.dataset_info)
             # first frame mapping 
@@ -262,8 +253,14 @@ class Exploration_Env(habitat.RLEnv):
                                 agent_state.rotation,
                                 step=self.timestep,
                                 rays_d=self.rays_d)
-            self.nerf_mapper.run(self.timestep, batch) 
-
+            self.nerf_mapper.run(self.timestep, batch)
+            # a list of (B, num_ranks, x/y/z dim, 1) to 
+            # (B, num_ranks, total dim, 1)
+            tensor_list = self.nerf_mapper.model.embed_fn.tensorxyz_coarse
+            tensors = torch.cat( [tensor.detach() for tensor in tensor_list], 
+                                dim=2)
+        else:
+            tensors = None 
 
         # Initialize map and pose
         self.map_size_cm = args.map_size_cm
@@ -307,6 +304,7 @@ class Exploration_Env(habitat.RLEnv):
             'sensor_pose': [0., 0., 0.],
             'pose_err': [0., 0., 0.],
             'map': self.map,
+            'tensors': tensors,
             'explored_map': self.explorable_map,
             'gt_pose': [self.curr_loc_gt[0],
                         self.curr_loc_gt[1],
@@ -386,16 +384,24 @@ class Exploration_Env(habitat.RLEnv):
         # return agent_view_cropped, map_gt, agent_view_explored, explored_gt
         fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
-        # neural implicit mapping
-        agent_state = \
-            self.habitat_env.sim.get_agent_state(0).sensor_states['rgb']
-        batch = data_loading(obs['rgb'], obs['depth'][...,0],
-                             agent_state.position,
-                             agent_state.rotation,
-                             step=self.timestep,
-                             rays_d=self.rays_d)
-        self.nerf_mapper.run(self.timestep, batch) 
-
+        
+        if args.global_arch == 'lena':
+            # neural implicit mapping
+            agent_state = \
+                self.habitat_env.sim.get_agent_state(0).sensor_states['rgb']
+            batch = data_loading(obs['rgb'], obs['depth'][...,0],
+                                agent_state.position,
+                                agent_state.rotation,
+                                step=self.timestep,
+                                rays_d=self.rays_d)
+            self.nerf_mapper.run(self.timestep, batch) 
+            # a list of (B, num_ranks, x/y/z dim, 1) to 
+            # (B, num_ranks, total dim, 1)
+            tensor_list = self.nerf_mapper.model.embed_fn.tensorxyz_coarse
+            tensors = torch.cat( [tensor.detach() for tensor in tensor_list], 
+                                dim=2) 
+        else:
+            tensors = None 
 
         # Update collision map
         if action == 'move_forward': 
@@ -430,6 +436,7 @@ class Exploration_Env(habitat.RLEnv):
         self.info['fp_proj'] = fp_proj
         self.info['fp_explored']= fp_explored
         self.info['map'] = self.map,
+        self.info['tensors'] = tensors
         self.info['explored_map'] = self.explorable_map,
         self.info['sensor_pose'] = [dx_base, dy_base, do_base]
         self.info['pose_err'] = [dx_gt - dx_base,

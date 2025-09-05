@@ -99,7 +99,7 @@ class Mapping():
                      'pose_rel': self.est_c2w_data_rel,
                      'model': self.model.state_dict()}
         torch.save(save_dict, save_path)
-        print('Save the checkpoint')
+        print('Save the NeRF checkpoint')
 
 
     def load_ckpt(self, load_path):
@@ -159,7 +159,7 @@ class Mapping():
             loss: float
         
         '''
-        print(f'Agent {self.agent_id} First frame mapping...')
+        print(f'NeRF Agent {self.agent_id} First frame mapping...')
         c2w = batch['c2w'][0].to(self.device)
         self.est_c2w_data[0] = c2w
         self.est_c2w_data_rel[0] = c2w
@@ -191,7 +191,7 @@ class Mapping():
         if self.config['mapping']['first_mesh']:
             self.save_mesh(0)
         
-        print(f'Agent {self.agent_id} First frame mapping done')
+        print(f'NeRF Agent {self.agent_id} First frame mapping done')
         return ret, loss
 
 
