@@ -1,5 +1,5 @@
 auto_gpu_config = 0
-num_processes = 15
+num_processes = 10
 debug = 0
 max_episode_length = 1000 #1000 for default
 num_episodes = 5 # 1000000 by default
@@ -22,4 +22,4 @@ collision_threshold = 0.001
 obstacle_boundary = 20 # default 5
 
 dump_location = results/
-exp_name = speed_test_sep30
+exp_name = speed_test_Oct2

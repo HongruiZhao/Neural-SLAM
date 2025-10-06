@@ -6,3 +6,12 @@ scikit-fmm==2023.4.2 # fast marching method for finding route to long-term goal
 scikit-image
 scikit-learn
 ConfigArgParse
+
+# for CoSLAM neural implicit mapping
+PyMCubes==0.1.6 
+open3d==0.18.0 
+trimesh==4.5.3 
+opencv-python==4.11.0.86 
+pyyaml==6.0.2
+iopath==0.1.10
+einops==0.8.1 
