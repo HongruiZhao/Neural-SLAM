@@ -41,6 +41,9 @@ class JointEncoding(nn.Module):
         app_coarse = (diff / self.config['grid']['app_coarse']).int()
         app_fine = (diff / self.config['grid']['app_fine']).int()
         self.tensor_dims = [sdf_coarse, sdf_fine, app_coarse, app_fine]
+
+        # for uncertainty grid 
+        self.uncertainty_res =  (diff / self.config['grid']['voxel_uncert']).int()
         
         print('SDF resolution:', self.resolution_sdf)
 
@@ -56,7 +59,7 @@ class JointEncoding(nn.Module):
                                                     desired_resolution=self.resolution_sdf,
                                                     tensors_dim=[self.tensor_dims[0],self.tensor_dims[1]],
                                                     cp_rank=config['grid']['sdf_rank'], tensor_f_dim=config['grid']['sdf_f_dim'],
-                                                    uncertainty=self.uncertainty_flag)
+                                                    uncertainty=self.uncertainty_flag, uncertainty_res=self.uncertainty_res)
 
         # Sparse parametric encoding (Color)
         if not self.config['grid']['oneGrid']:

@@ -1,5 +1,7 @@
 import torch.nn.functional as F
 import torch 
+import sys
+sys.path.append('.')
 from torch.nn.utils import parameters_to_vector as p2v
 import torch.optim as optim
 

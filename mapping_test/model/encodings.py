@@ -116,6 +116,63 @@ class TensorCP(torch.nn.Module):
     
 
 
+class HashUncertainty(torch.nn.Module):
+    def __init__(self, input_dim=3,
+                n_levels=16, level_dim=2, 
+                base_resolution=16, log2_hashmap_size=19, 
+                desired_resolution=512, uncertainty_flag='grid', uncertainty_res=None):
+        super(HashUncertainty, self).__init__()
+        self.uncertainty_flag = uncertainty_flag
+        per_level_scale = np.exp2(np.log2(desired_resolution  / base_resolution) / (n_levels - 1))
+        self.embed = tcnn.Encoding(
+            n_input_dims=input_dim,
+            encoding_config={
+                "otype": 'HashGrid',
+                "n_levels": n_levels,
+                "n_features_per_level": level_dim,
+                "log2_hashmap_size": log2_hashmap_size,
+                "base_resolution": base_resolution,
+                "per_level_scale": per_level_scale
+            },
+            dtype=torch.float
+        )
+        self.n_output_dims = self.embed.n_output_dims
+
+        if self.uncertainty_flag == 'grid':
+            self.xyz_uncert = self.get_uncert_grid(uncertainty_res)
+
+    def get_uncert_grid(self, xyz_dim):
+        Nx = xyz_dim[0]
+        Ny = xyz_dim[1]
+        Nz = xyz_dim[2]
+        # Uncertainty initialize to 3
+        self.uncert_grid = torch.nn.parameter.Parameter(torch.ones([Nx, Ny, Nz], device="cuda").float() * 3)
+        self.cache_uncert = np.zeros([Nx, Ny, Nz], dtype=np.float32)
+        return self.uncert_grid
+
+    def compute_uncert_grid(self, xyz_sampled):
+        """
+            @param xyz_sampled: (N,3) query points coordinate in [-1, 1]
+        """
+        uncert = torch.nn.functional.grid_sample(self.uncert_grid[None, None, ...], xyz_sampled[None, None, None, ...], 
+                                                 align_corners=False)
+        return uncert.squeeze()[..., None]
+
+    def forward(self, xyz_sampled):
+        """
+            @param xyz_sampled: (N,3) query points coordinate. [0,1] for tcnn_encoding
+        """
+        embedded = self.embed(xyz_sampled)
+        
+        if self.uncertainty_flag == 'grid':
+            xyz_sampled_norm = (xyz_sampled*2 - 1).to(torch.float32) # to [-1,1]
+            uncertainty = self.compute_uncert_grid(xyz_sampled_norm)
+        else:
+            uncertainty = None
+        
+        return embedded, uncertainty
+
+
         
 
 
@@ -126,7 +183,7 @@ def get_encoder(encoding, input_dim=3,
                 n_levels=16, level_dim=2, 
                 base_resolution=16, log2_hashmap_size=19, 
                 desired_resolution=512, tensors_dim=[ [256,256,256], [512,512,512]],
-                cp_rank=4, tensor_f_dim=16, uncertainty=True):
+                cp_rank=4, tensor_f_dim=16, uncertainty=True, uncertainty_res=[100,100,100]):
     """
         @param tensors_dim: list. the first item for coarse xyz tensors, the second for fine
         @param cp_ranK: rank for tensor CP decomposition 
@@ -155,19 +212,10 @@ def get_encoder(encoding, input_dim=3,
     # Sparse grid encoding
     elif 'hash' in encoding.lower() or 'tiled' in encoding.lower():
         print('Hash size', log2_hashmap_size)
-        per_level_scale = np.exp2(np.log2(desired_resolution  / base_resolution) / (n_levels - 1))
-        embed = tcnn.Encoding(
-            n_input_dims=input_dim,
-            encoding_config={
-                "otype": 'HashGrid',
-                "n_levels": n_levels,
-                "n_features_per_level": level_dim,
-                "log2_hashmap_size": log2_hashmap_size,
-                "base_resolution": base_resolution,
-                "per_level_scale": per_level_scale
-            },
-            dtype=torch.float
-        )
+        embed = HashUncertainty(input_dim=input_dim, n_levels=n_levels, level_dim=level_dim,
+                                base_resolution=base_resolution, log2_hashmap_size=log2_hashmap_size,
+                                desired_resolution=desired_resolution,
+                                uncertainty_flag=uncertainty, uncertainty_res=uncertainty_res,)
         out_dim = embed.n_output_dims
 
         # # TODO: use pytorch implementation of hah grid?

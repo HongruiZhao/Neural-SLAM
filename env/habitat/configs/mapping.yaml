@@ -9,19 +9,18 @@ mapping:
 
 mesh: 
   render_color: True
-  vis: 25 #25
   voxel: 0.02 
   save_uncert: True
   vis: 5000 # don't save meshes 
 
 grid:
-  #enc: 'HashGrid'
-  enc: 'tensor'
-  sdf_rank: 40
-  app_rank: 40
-  oneGrid: True
-  uncertainty: 'none' # 'gird', 'tensor', or 'none'
-
+  enc: 'HashGrid'
+  hash_size: 16
+  voxel_color: 0.08
+  voxel_sdf: 0.02
+  uncertainty: 'grid' # 'gird', 'tensor', or 'none'
+  voxel_uncert: 0.1
+  
 cam: 
   crop_edge: 0
   near: 0

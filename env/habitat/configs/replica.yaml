@@ -51,13 +51,13 @@ grid:
   #for CP decomposition 
   sdf_coarse: 0.024
   sdf_fine: 0.006
-  sdf_rank: 4
+  sdf_rank: 40
   sdf_f_dim: 16
   app_coarse: 0.024
   app_fine: 0.003
-  app_rank: 4
+  app_rank: 40
   app_f_dim: 48
-  uncertainty: True
+  uncertainty: 'none'
 
 
 pos:
