@@ -39,7 +39,7 @@ def get_point_cloud_from_z(Y, camera_matrix, scale=1):
         camera_matrix
     Outputs:
         X is positive going right
-        Y is positive into the image
+        Y is positive into the image -> transform_pose() rotate around z for -pi/2, flip X and Y.
         Z is positive up in the image
         XYZ is ...xHxWx3
     """

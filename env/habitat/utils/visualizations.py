@@ -100,24 +100,24 @@ def visualize(fig, ax, img, grid, pos, gt_pos, dump_dir, rank, ep_no, t,
         plt.savefig(fn)
 
 
-def insert_circle(mat, x, y, value):
-    mat[x - 2: x + 3, y - 2:y + 3] = value
-    mat[x - 3:x + 4, y - 1:y + 2] = value
-    mat[x - 1:x + 2, y - 3:y + 4] = value
-    return mat
+def insert_circle(map, x, y, value):
+    map[x - 2: x + 3, y - 2:y + 3] = value
+    map[x - 3:x + 4, y - 1:y + 2] = value
+    map[x - 1:x + 2, y - 3:y + 4] = value
+    return map
 
 
-def fill_color(colored, mat, color):
+def fill_color(colored, map, color):
     for i in range(3):
-        colored[:, :, 2 - i] *= (1 - mat)
-        colored[:, :, 2 - i] += (1 - color[i]) * mat
+        colored[:, :, 2 - i] *= (1 - map)
+        colored[:, :, 2 - i] += (1 - color[i]) * map
     return colored
 
 
-def get_colored_map(mat, collision_map, visited, visited_gt, goal, local_goal,
+def get_colored_map(map, collision_map, visited, visited_gt, goal, local_goal,
                     explored, gt_map, gt_map_explored):
     """
-        @param mat: predicted map
+        @param map: predicted map
         @param collision_map: collision points along the map
         @param visited: predicted visited path
         @param visited_gt: gt visited path
@@ -127,12 +127,12 @@ def get_colored_map(mat, collision_map, visited, visited_gt, goal, local_goal,
         @param gt_map: total explorable map 
         @param gt_map_explored: redundant? 
     """
-    m, n = mat.shape
+    m, n = map.shape
     colored = np.zeros((m, n, 3))
 
     colored = fill_color(colored, gt_map, color_palette[4])
     colored = fill_color(colored, explored, color_palette[5])
-    colored = fill_color(colored, mat, color_palette[3])
+    colored = fill_color(colored, map, color_palette[3])
     colored = fill_color(colored, visited_gt, color_palette[1])
     colored = fill_color(colored, visited, color_palette[0])
     colored = fill_color(colored, collision_map, color_palette[2])
@@ -144,20 +144,20 @@ def get_colored_map(mat, collision_map, visited, visited_gt, goal, local_goal,
 
     # plot global goal 
     selem = skimage.morphology.disk(4)
-    goal_mat = np.zeros((m, n))
-    goal_mat[goal[0], goal[1]] = 1
-    goal_mat = 1 - skimage.morphology.binary_dilation(
-        goal_mat, selem) != True
+    goal_map = np.zeros((m, n))
+    goal_map[goal[0], goal[1]] = 1
+    goal_map = 1 - skimage.morphology.binary_dilation(
+        goal_map, selem) != True
 
-    colored = fill_color(colored, goal_mat, color_palette[6])
+    colored = fill_color(colored, goal_map, color_palette[6])
 
     # plot local goal
     selem = skimage.morphology.disk(4)
-    local_goal_mat = np.zeros((m, n))
-    local_goal_mat[int(local_goal[0]), int(local_goal[1])] = 1
-    local_goal_mat = 1 - skimage.morphology.binary_dilation(
-        local_goal_mat, selem) != True
-    colored = fill_color(colored, local_goal_mat, color_palette[7])
+    local_goal_map = np.zeros((m, n))
+    local_goal_map[int(local_goal[0]), int(local_goal[1])] = 1
+    local_goal_map = 1 - skimage.morphology.binary_dilation(
+        local_goal_map, selem) != True
+    colored = fill_color(colored, local_goal_map, color_palette[7])
 
 
     colored = 1 - colored

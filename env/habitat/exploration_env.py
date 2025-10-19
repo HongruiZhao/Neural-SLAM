@@ -35,6 +35,7 @@ from model import get_grid
 
 import yaml
 from .ramen_mapping import data_loading, get_camera_rays, Mapping
+from scipy.spatial.transform import Rotation # to process quaternion 
 
 
 def load_config(path, default_path=None):
@@ -166,8 +167,7 @@ class Exploration_Env(habitat.RLEnv):
                         'H':self.img_H, 'W':self.img_W }
         self.nerf_mapper = None # will get created at reset 
         self.exp_name = self.nerf_map_cfg['data']['exp_name']
-        
-
+        self.q_initial = None # quat of cam to world at reset 
 
     # def randomize_env(self):
     #     # https://aihabitat.org/docs/habitat-lab/habitat.core.dataset.EpisodeIterator.html#dunder-methods
@@ -239,38 +239,16 @@ class Exploration_Env(habitat.RLEnv):
         #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
         depth = obs['depth'][:, :, 0] * 100 # m to cm 
 
-        # Initialize neural implicit map
-        if args.global_arch == 'lena': 
-            self.nerf_map_cfg['data']['exp_name'] = \
-                    self.exp_name + '_ep' + str(self.episode_no)
-            self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
-                                    dataset_info=self.dataset_info)
-            # first frame mapping 
-            agent_state = \
-                self.habitat_env.sim.get_agent_state(0).sensor_states['rgb']
-            batch = data_loading(obs['rgb'], obs['depth'][...,0],
-                                agent_state.position,
-                                agent_state.rotation,
-                                step=self.timestep,
-                                rays_d=self.rays_d)
-            self.nerf_mapper.run(self.timestep, batch)
-            # a list of (B, num_ranks, x/y/z dim, 1) to 
-            # (B, num_ranks, total dim, 1)
-            tensor_list = self.nerf_mapper.model.embed_fn.tensorxyz_coarse
-            tensors = torch.cat( [tensor.detach() for tensor in tensor_list], 
-                                dim=2)
-        else:
-            tensors = None 
-
         # Initialize map and pose
         self.map_size_cm = args.map_size_cm
         self.mapper.reset_map(self.map_size_cm)
         self.curr_loc = [self.map_size_cm/100.0/2.0,
-                         self.map_size_cm/100.0/2.0, 0.]
+                         self.map_size_cm/100.0/2.0, 0.] # in m 
         self.curr_loc_gt = self.curr_loc
         self.last_loc_gt = self.curr_loc_gt
         self.last_loc = self.curr_loc
         self.last_sim_location = self.get_sim_location()
+        self.q_initial = self.last_sim_location[2]
 
         # Convert pose to cm and radians for mapper
         mapper_gt_pose = (self.curr_loc_gt[0]*100.0,
@@ -281,6 +259,32 @@ class Exploration_Env(habitat.RLEnv):
         # return agent_view_cropped, map_gt, agent_view_explored, explored_gt
         fp_proj, self.map, fp_explored, self.explored_map = \
             self.mapper.update_map(depth, mapper_gt_pose)
+        
+        # Initialize neural implicit map
+        if args.global_arch == 'lena': 
+            self.nerf_map_cfg['mapping']['bound'] = \
+                [   [-self.map_size_cm/100, 0], 
+                    [-1.5,4], 
+                    [-self.map_size_cm/100, 0] ] # habitat is Y-up right-handed
+            self.nerf_map_cfg['mapping']['marching_cubes_bound'] = \
+                self.nerf_map_cfg['mapping']['bound']
+            self.nerf_map_cfg['grid']['voxel_uncert'] = args.map_resolution / 100 
+            self.nerf_map_cfg['data']['exp_name'] = \
+                    self.exp_name + '_ep' + str(self.episode_no)
+            self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
+                                    dataset_info=self.dataset_info)
+            # first frame mapping 
+            batch = data_loading( obs['rgb'], obs['depth'][...,0],
+                                [ -self.curr_loc[1], 
+                                  self.last_sim_location[1],
+                                  -self.curr_loc[0]],
+                                Rotation.from_quat([0,0,0,1]).as_quat(), # scalar last
+                                step=self.timestep,
+                                rays_d=self.rays_d)
+            self.nerf_mapper.run(self.timestep, batch)
+            uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+        else:
+            uncert_map = None 
         
         if self.args.debug:
             plt.figure()
@@ -304,8 +308,8 @@ class Exploration_Env(habitat.RLEnv):
             'sensor_pose': [0., 0., 0.],
             'pose_err': [0., 0., 0.],
             'map': self.map,
-            'tensors': tensors,
-            'explored_map': self.explorable_map,
+            'uncert_map': uncert_map,
+            'explored_map': self.explored_map,
             'gt_pose': [self.curr_loc_gt[0],
                         self.curr_loc_gt[1],
                         self.curr_loc_gt[2]]
@@ -360,7 +364,7 @@ class Exploration_Env(habitat.RLEnv):
         depth = obs['depth'][:, :, 0] * 100 # m to cm 
 
         # Get base sensor and ground-truth pose
-        dx_gt, dy_gt, do_gt = self.get_gt_pose_change()
+        dx_gt, dy_gt, do_gt, q_relative  = self.get_gt_pose_change()
         dx_base, dy_base, do_base = self.get_base_pose_change(
                                         action, (dx_gt, dy_gt, do_gt))
 
@@ -387,21 +391,17 @@ class Exploration_Env(habitat.RLEnv):
         
         if args.global_arch == 'lena':
             # neural implicit mapping
-            agent_state = \
-                self.habitat_env.sim.get_agent_state(0).sensor_states['rgb']
-            batch = data_loading(obs['rgb'], obs['depth'][...,0],
-                                agent_state.position,
-                                agent_state.rotation,
-                                step=self.timestep,
-                                rays_d=self.rays_d)
+            batch = data_loading(   obs['rgb'], obs['depth'][...,0],
+                                   [-self.curr_loc[1], 
+                                    self.last_sim_location[1],
+                                    -self.curr_loc[0]],
+                                    q_relative,
+                                    step=self.timestep,
+                                    rays_d=self.rays_d)
             self.nerf_mapper.run(self.timestep, batch) 
-            # a list of (B, num_ranks, x/y/z dim, 1) to 
-            # (B, num_ranks, total dim, 1)
-            tensor_list = self.nerf_mapper.model.embed_fn.tensorxyz_coarse
-            tensors = torch.cat( [tensor.detach() for tensor in tensor_list], 
-                                dim=2) 
+            uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
         else:
-            tensors = None 
+            uncert_map = None 
 
         # Update collision map
         if action == 'move_forward': 
@@ -436,8 +436,8 @@ class Exploration_Env(habitat.RLEnv):
         self.info['fp_proj'] = fp_proj
         self.info['fp_explored']= fp_explored
         self.info['map'] = self.map,
-        self.info['tensors'] = tensors
-        self.info['explored_map'] = self.explorable_map,
+        self.info['uncert_map'] = uncert_map
+        self.info['explored_map'] = self.explored_map,
         self.info['sensor_pose'] = [dx_base, dy_base, do_base]
         self.info['pose_err'] = [dx_gt - dx_base,
                                  dy_gt - dy_base,
@@ -525,9 +525,23 @@ class Exploration_Env(habitat.RLEnv):
 
 
     def get_sim_location(self):
+        """
+        Args: 
+            self:
+        Returns:
+            [(x, y, o), z, q]: 
+        """
         agent_state = super().habitat_env.sim.get_agent_state(0)
         x = -agent_state.position[2]
         y = -agent_state.position[0]
+        z = agent_state.position[1]
+        q  = Rotation.from_quat([
+            agent_state.rotation.x,
+            agent_state.rotation.y,
+            agent_state.rotation.z,
+            agent_state.rotation.w
+        ]).as_quat()
+
         axis = quaternion.as_euler_angles(agent_state.rotation)[0]
         if (axis%(2*np.pi)) < 0.1 or (axis%(2*np.pi)) > 2*np.pi - 0.1:
             o = quaternion.as_euler_angles(agent_state.rotation)[1]
@@ -535,31 +549,42 @@ class Exploration_Env(habitat.RLEnv):
             o = 2*np.pi - quaternion.as_euler_angles(agent_state.rotation)[1]
         if o > np.pi:
             o -= 2 * np.pi
-        return x, y, o
+        return [(x, y, o), z, q]
 
 
     def get_gt_pose_change(self):
+        """
+            Also update self.last_sim_location
+            Returns:
+                dx, dy, do, q_relative
+        """
         curr_sim_pose = self.get_sim_location()
-        dx, dy, do = pu.get_rel_pose_change(curr_sim_pose, self.last_sim_location)
+        dx, dy, do = pu.get_rel_pose_change(curr_sim_pose[0], self.last_sim_location[0])
+        q_relative = pu.get_q_new2old(
+            q_old= self.q_initial, 
+            q_new=curr_sim_pose[2]
+        ) # current cam to initial cam frame 
         self.last_sim_location = curr_sim_pose
-        return dx, dy, do
+        return dx, dy, do, q_relative
 
 
     def get_base_pose_change(self, action, gt_pose_change):
         dx_gt, dy_gt, do_gt = gt_pose_change
-        if action == 1: ## Forward
-            x_err, y_err, o_err = self.sensor_noise_fwd.sample()[0][0]
-        elif action == 3: ## Right
-            x_err, y_err, o_err = self.sensor_noise_right.sample()[0][0]
-        elif action == 2: ## Left
-            x_err, y_err, o_err = self.sensor_noise_left.sample()[0][0]
-        else: ##Stop
-            x_err, y_err, o_err = 0., 0., 0.
+        # if action == 1: ## Forward
+        #     x_err, y_err, o_err = self.sensor_noise_fwd.sample()[0][0]
+        # elif action == 3: ## Right
+        #     x_err, y_err, o_err = self.sensor_noise_right.sample()[0][0]
+        # elif action == 2: ## Left
+        #     x_err, y_err, o_err = self.sensor_noise_left.sample()[0][0]
+        # else: ##Stop
+        #     x_err, y_err, o_err = 0., 0., 0.
 
-        x_err = x_err * self.args.noise_level
-        y_err = y_err * self.args.noise_level
-        o_err = o_err * self.args.noise_level
-        return dx_gt + x_err, dy_gt + y_err, do_gt + np.deg2rad(o_err)
+        # x_err = x_err * self.args.noise_level
+        # y_err = y_err * self.args.noise_level
+        # o_err = o_err * self.args.noise_level
+        #return dx_gt + x_err, dy_gt + y_err, do_gt + np.deg2rad(o_err)
+
+        return dx_gt, dy_gt, do_gt # for now no noisy pose
 
 
     def get_short_term_goal(self, inputs):
@@ -756,7 +781,7 @@ class Exploration_Env(habitat.RLEnv):
 
         # Transform the map to align with the agent
         min_x, min_y = self.map_obj.origin/100.0
-        x, y, o = self.get_sim_location()
+        x, y, o = self.get_sim_location()[0]
         x, y = -x - min_x, -y - min_y
         range_x, range_y = self.map_obj.max/100. - self.map_obj.origin/100.
 

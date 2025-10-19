@@ -61,7 +61,7 @@ class MapBuilder(object):
         agent_view_centered = du.transform_pose(agent_view, shift_loc)
 
         # how many points in each bins. 
-        # 3 z bins: x<25mm, 25mm<=x<150mm, 150mm<=x
+        # 3 z bins: z<25mm, 25mm<=z<150mm, 150mm<=z
         agent_view_flat = du.bin_points(
             agent_view_centered,
             self.vision_range, # map size = vision_range. thus 64x64 bins
@@ -76,7 +76,7 @@ class MapBuilder(object):
                 plt.imshow(agent_view_flat[:,:,i], cmap='viridis')
             plt.savefig('./debug/agent_map.png')
 
-        # only care about second bin 25mm<=x<150mm,
+        # only care about second bin 25mm<=z<150mm,
         agent_view_cropped = agent_view_flat[:, :, 1]
         # occupied or free if num of points > threshold
         agent_view_cropped = agent_view_cropped / self.obs_threshold

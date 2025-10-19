@@ -1,5 +1,5 @@
 import numpy as np
-
+from scipy.spatial.transform import Rotation # to process quaternion 
 
 def get_l2_distance(x1, x2, y1, y2):
     """
@@ -40,3 +40,11 @@ def threshold_poses(coords, shape):
     coords[0] = min(max(0, coords[0]), shape[0] - 1)
     coords[1] = min(max(0, coords[1]), shape[1] - 1)
     return coords
+
+
+def get_q_new2old(q_old, q_new):
+    R_old = Rotation.from_quat(q_old).as_matrix()
+    R_new = Rotation.from_quat(q_new).as_matrix()
+    R_old2new = R_old.T @ R_new 
+    q_relative = Rotation.from_matrix(R_old2new).as_quat()
+    return q_relative

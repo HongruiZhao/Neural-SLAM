@@ -209,26 +209,10 @@ def main():
 
     init_map_and_pose()
 
-    # Global policy observation space
-    if args.global_arch == 'lena':
-        nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
-        bounding_box = np.array(nerf_map_cfg['mapping']['bound'])
-        diff = bounding_box[:,1] - bounding_box[:,0]
-        sdf_coarse = (diff / nerf_map_cfg['grid']['sdf_coarse']).astype(np.uint16)
-        rank = nerf_map_cfg['grid']['sdf_rank']
-        tensor_lengths = sdf_coarse.tolist()
-        total_length = sum(tensor_lengths)
-        g_observation_space = gym.spaces.Box(0, 1,
-                                             (rank,
-                                              total_length,
-                                              1), dtype='float32') 
-    else:
-        nerf_map_cfg = None
-        sdf_coarse = None
-        g_observation_space = gym.spaces.Box(0, 1,
-                                             (8,
-                                              local_w,
-                                              local_h), dtype='uint8')
+    g_observation_space = gym.spaces.Box(0, 1,
+                                            (8,
+                                            local_w,
+                                            local_h), dtype='uint8')
 
     # Global policy action space
     # action space is (x,y) coordinate
@@ -261,18 +245,10 @@ def main():
                                         }).to(device)
     elif args.global_arch == 'lena':
         g_policy = RL_Policy(g_observation_space.shape, g_action_space,
-                            model_type='lena',
-                            tensor_former_args={
-                                'rank': nerf_map_cfg['grid']['sdf_rank'],
-                                'tensor_lengths': sdf_coarse.tolist(),
-                                'attn_dim': args.tf_attn_dim,
-                                'out_dim': args.tf_out_dim,
-                                'depth': args.tf_depth,
-                                'heads': args.tf_heads,
-                                'dim_head': args.tf_dim_head,
-                            },
+                            model_type='NeuralSLAM',
                             base_kwargs={'recurrent': args.use_recurrent_global,
                                         'hidden_size': g_hidden_size,
+                                        'downscaling': args.global_downscaling
                                         }).to(device)
     else:
         raise NotImplementedError
@@ -365,21 +341,17 @@ def main():
     locs = local_pose.cpu().numpy()
     global_orientation = torch.zeros(num_scenes, 1).long()
 
-    if args.global_arch == 'lena':
-        global_input = \
-            torch.cat([infos[e]['tensors'] 
-                for e in range(num_scenes)], dim=0).to(device)
-    else:
-        global_input = torch.zeros(num_scenes, 8, local_w, local_h)
-        for e in range(num_scenes):
-            r, c = locs[e, 1], locs[e, 0]
-            loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
-                            int(c * 100.0 / args.map_resolution)] # convert m to cm and find current pose bin
-            local_map[e, 2:, loc_r - 1:loc_r + 2, loc_c - 1:loc_c + 2] = 1. # set current and pass agent position channels to be the current position
-            global_orientation[e] = int((locs[e, 2] + 180.0) / 5.) # -180~180 to 0~360, digitize
+    global_input = torch.zeros(num_scenes, 8, local_w, local_h)
+    for e in range(num_scenes):
+        r, c = locs[e, 1], locs[e, 0] # position row and column 
+        loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
+                        int(c * 100.0 / args.map_resolution)] # convert m to cm and find current pose bin
+        local_map[e, 2:, loc_r - 1:loc_r + 2, loc_c - 1:loc_c + 2] = 1. # occupy the position at the current and past agent position channels
+        global_orientation[e] = int((locs[e, 2] + 180.0) / 5.) # -180~180 to 0~360, digitize
 
-        global_input[:, 0:4, :, :] = local_map.detach()
-        global_input[:, 4:, :, :] = nn.MaxPool2d(args.global_downscaling)(full_map)
+    global_input[:, 0:4, :, :] = local_map.detach()
+    global_input[:, 4:, :, :] = nn.MaxPool2d(args.global_downscaling)(full_map)
+
 
     g_rollouts.obs[0].copy_(global_input)
     g_rollouts.extras[0].copy_(global_orientation)
@@ -500,6 +472,8 @@ def main():
             else:
                 all_maps = np.stack([infos[e]['map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)]) # [0]: info returns a tuple (map,) for some reasons
                 all_explored_maps = np.stack([infos[e]['explored_map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
+                if args.global_arch == 'lena':
+                    all_uncert_maps = np.stack([infos[e]['uncert_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
                 torch_maps = torch.from_numpy(all_maps).to(device)
                 torch_explored_maps = torch.from_numpy(all_explored_maps).to(device)
                 local_map[:, 0, :, :] = torch_maps
@@ -520,7 +494,6 @@ def main():
                 r, c = locs[e, 1], locs[e, 0]
                 loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
                                 int(c * 100.0 / args.map_resolution)]
-
                 local_map[e, 2:, loc_r - 2:loc_r + 3, loc_c - 2:loc_c + 3] = 1.
             # ------------------------------------------------------------------
 
@@ -556,14 +529,9 @@ def main():
                 for e in range(num_scenes):
                     global_orientation[e] = np.clip(int((locs[e, 2] + 180.0) / 5.), 0, 71)
 
-                if args.global_arch == 'lena':
-                   global_input = \
-                    torch.cat([infos[e]['tensors'] 
-                        for e in range(num_scenes)], dim=0).to(device)
-                else:
-                    global_input[:, 0:4, :, :] = local_map
-                    global_input[:, 4:, :, :] = \
-                        nn.MaxPool2d(args.global_downscaling)(full_map)
+                global_input[:, 0:4, :, :] = local_map
+                global_input[:, 4:, :, :] = \
+                    nn.MaxPool2d(args.global_downscaling)(full_map)
 
                 # Get exploration reward and metrics
                 g_reward = torch.from_numpy(np.asarray(

@@ -1,8 +1,8 @@
 auto_gpu_config = 0
-num_processes = 1
+num_processes = 3
 debug = 0
 max_episode_length = 1000 #1000 for default
-num_episodes = 1000000 # 1000000 by default
+num_episodes = 2 # 1000000 by default
 
 train_local = 0
 train_slam = 0
@@ -22,4 +22,4 @@ collision_threshold = 0.001
 obstacle_boundary = 20 # default 5
 
 dump_location = results/
-exp_name = train_aug11_fixDim
+exp_name = test_Oct17

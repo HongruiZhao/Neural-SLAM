@@ -23,6 +23,8 @@ class Mapping():
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.agent_id = id 
         self.dataset_info = dataset_info 
+        save_path = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}')
+        os.makedirs(save_path, exist_ok=True)
 
         self.create_bounds()
         self.create_pose_data()
@@ -423,17 +425,7 @@ def data_loading(rgb_image, depth_image, agent_pos, agent_q, step, rays_d):
     
     rgb_image = torch.from_numpy(rgb_image.astype(np.float32) / 255.)[:,:,:3] # Normalize to [0, 1]
     depth_image = torch.from_numpy(depth_image.astype(np.float32)) # in m
-
-    # Extract rotation (orientation)
-    rotation = Rotation.from_quat([
-        agent_q.x,
-        agent_q.y,
-        agent_q.z,
-        agent_q.w
-    ])
-    # Convert rotation to rotation matrix
-    rotation_matrix = rotation.as_matrix()
-    # Create the 4x4 transformation matrix
+    rotation_matrix = Rotation.from_quat(agent_q).as_matrix()
     transformation_matrix = np.eye(4)  # Initialize as identity matrix
     transformation_matrix[:3, :3] = rotation_matrix  # Set rotation part
     transformation_matrix[:3, 3] = agent_pos  # Set translation part
