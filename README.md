@@ -5,7 +5,7 @@
 - First create the conda environmnet. *lena* stands for “learn to perform neural active mapping”. `python=3.9` is a must because `habitat` does not work with newer version python
 
 ```bash
-conda create -n python=3.9 cmake=3.14.0
+conda create -n lena python=3.9 cmake=3.14.0
 conda activate lena
 ```
 
