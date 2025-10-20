@@ -25,7 +25,7 @@ pip install -r requirements.txt
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends libjpeg-dev libglm-dev libgl1 libglx-mesa0 libegl1-mesa-dev mesa-utils xorg-dev freeglut3-dev
 ```
-* Build Habitat-sim with CUDA 
+* Build Habitat-sim with CUDA. Before doing so you will need to make sure [cuda toolkit](https://developer.nvidia.com/cuda-12-6-0-download-archive?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04) has been installed. 
 ```bash 
 python setup.py install --with-cuda
 ```
