@@ -78,7 +78,6 @@ python main.py --config ./configs/eval_vis.txt
 You can change what saved models to evaluate in `./configs/eval_vis.txt`.  If `print_images = 1` images (camera observation + map) will saved into `$dum_location/$exp_name`. A video will also be generated from the saved images.  
 
 # Code structure
-
 - You can find global policy, path planner, and local policy starting from `main.py` .
 - The most important simulation environment file is `env/habitat/exploration_env.py` which defines the `step()` and `reset()` functions for each process.
 - Multiple processes/threads/scenes can run in parallel, and this is defined in `env/__init__.py`.

@@ -79,7 +79,6 @@ def main():
         filename=log_dir + 'train.log',
         level=logging.INFO)
     print("Dumping at {}".format(log_dir))
-    print(args)
     logging.info(args)
 
     # Setup tensorboard 
@@ -101,11 +100,6 @@ def main():
 
     best_local_loss = np.inf
     best_g_reward = -np.inf
-
-    if args.eval:
-        traj_lengths = args.max_episode_length // args.num_local_steps
-        explored_area_log = np.zeros((num_scenes, num_episodes, traj_lengths))
-        explored_ratio_log = np.zeros((num_scenes, num_episodes, traj_lengths))
 
     g_episode_rewards = deque(maxlen=1000)
 
@@ -324,14 +318,18 @@ def main():
             plt.savefig('./debug/nslam.png')
             print(f'nslam pose = {local_pose}')
             print(f"gt pose = { infos[0]['sensor_pose'] }")
-
     else:
         all_maps = np.stack([infos[e]['map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
         all_explored_maps = np.stack([infos[e]['explored_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
         torch_maps = torch.from_numpy(all_maps).to(device)
         torch_explored_maps = torch.from_numpy(all_explored_maps).to(device)
         local_map[:, 0, :, :] = torch_maps
-        local_map[:, 1, :, :] = torch_explored_maps
+        if args.global_arch == 'lena':
+            all_uncert_maps = np.stack([infos[e]['uncert_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
+            torch_uncert_maps = torch.from_numpy(all_uncert_maps).to(device)
+            local_map[:, 1, :, :] = torch_uncert_maps
+        else:  
+            local_map[:, 1, :, :] = torch_explored_maps
         local_pose = torch.from_numpy(np.asarray(
             [infos[env_idx]['gt_pose'] for env_idx
             in range(num_scenes)])).float().to(device) - \
@@ -383,7 +381,6 @@ def main():
 
     last_obs = obs.detach()
     local_rec_states = torch.zeros(num_scenes, l_hidden_size).to(device)
-    start = time.time()
 
     total_num_steps = -1
     g_reward = 0
@@ -391,11 +388,11 @@ def main():
     torch.set_grad_enabled(False)
 
     for ep_num in trange(num_episodes):
+
         for step in trange(args.max_episode_length):
             total_num_steps += 1
 
             g_step = (step // args.num_local_steps) % args.num_global_steps
-            eval_g_step = step // args.num_local_steps + 1
             l_step = step % args.num_local_steps
 
             # ------------------------------------------------------------------
@@ -472,12 +469,15 @@ def main():
             else:
                 all_maps = np.stack([infos[e]['map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)]) # [0]: info returns a tuple (map,) for some reasons
                 all_explored_maps = np.stack([infos[e]['explored_map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
-                if args.global_arch == 'lena':
-                    all_uncert_maps = np.stack([infos[e]['uncert_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
                 torch_maps = torch.from_numpy(all_maps).to(device)
                 torch_explored_maps = torch.from_numpy(all_explored_maps).to(device)
                 local_map[:, 0, :, :] = torch_maps
-                local_map[:, 1, :, :] = torch_explored_maps
+                if args.global_arch == 'lena':
+                    all_uncert_maps = np.stack([infos[e]['uncert_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
+                    torch_uncert_maps = torch.from_numpy(all_uncert_maps).to(device)
+                    local_map[:, 1, :, :] = torch_uncert_maps
+                else:  
+                    local_map[:, 1, :, :] = torch_explored_maps
                 local_pose = torch.from_numpy(np.asarray(
                     [infos[env_idx]['gt_pose'] for env_idx
                     in range(num_scenes)])).float().to(device) - \

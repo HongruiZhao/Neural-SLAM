@@ -211,117 +211,124 @@ class Exploration_Env(habitat.RLEnv):
         self.trajectory_states = []
         self.accumulated_ratio = 0
 
-        # shuffle into a different episode
-        # episodes are loaded from task dataset like pointnav_gibson_v1
-        # an episode includes initial position and rotation of agent, scene id, episode_id
-        # if args.randomize_env_every > 0: 
-        #     if np.mod(self.episode_no, args.randomize_env_every) == 0:
-        #         self.randomize_env()
+        if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
+            # shuffle into a different episode
+            # episodes are loaded from task dataset like pointnav_gibson_v1
+            # an episode includes initial position and rotation of agent, scene id, episode_id
+            # if args.randomize_env_every > 0: 
+            #     if np.mod(self.episode_no, args.randomize_env_every) == 0:
+            #         self.randomize_env()
 
-        # Get Ground Truth Map
-        self.explorable_map = None
-        while self.explorable_map is None:
-            obs = super().reset()
-            full_map_size = args.map_size_cm//args.map_resolution
-            self.explorable_map = self._get_gt_map(full_map_size)
-        self.prev_explored_area = 0.
-        if self.args.debug:
-            plt.figure()
-            plt.imshow(self.explorable_map, cmap='viridis')
-            plt.savefig('./debug/explorable_map.png')
+            # Get Ground Truth Map
+            self.explorable_map = None
+            all_zero_imgs = True
+            while (self.explorable_map is None) or all_zero_imgs:
+                obs = super().reset()
+                full_map_size = args.map_size_cm//args.map_resolution
+                self.explorable_map = self._get_gt_map(full_map_size)
+                if np.any(obs['rgb']): # sometimes it returns all-zero rgb and depth imgs
+                    all_zero_imgs = False
+            self.prev_explored_area = 0.
+            if self.args.debug:
+                plt.figure()
+                plt.imshow(self.explorable_map, cmap='viridis')
+                plt.savefig('./debug/explorable_map.png')
 
-        # Preprocess observations
-        rgb = obs['rgb'].astype(np.uint8)
-        self.obs = rgb # For visualization
-        if self.args.frame_width != self.args.env_frame_width:
-            rgb = np.asarray(self.res(rgb))
-        state = rgb.transpose(2, 0, 1)
-        #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
-        depth = obs['depth'][:, :, 0] * 100 # m to cm 
+            # Preprocess observations
+            rgb = obs['rgb'].astype(np.uint8)
+            self.obs = rgb # For visualization
+            if self.args.frame_width != self.args.env_frame_width:
+                rgb = np.asarray(self.res(rgb))
+            state = rgb.transpose(2, 0, 1)
+            #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
+            depth = obs['depth'][:, :, 0] * 100 # m to cm 
 
-        # Initialize map and pose
-        self.map_size_cm = args.map_size_cm
-        self.mapper.reset_map(self.map_size_cm)
-        self.curr_loc = [self.map_size_cm/100.0/2.0,
-                         self.map_size_cm/100.0/2.0, 0.] # in m 
-        self.curr_loc_gt = self.curr_loc
-        self.last_loc_gt = self.curr_loc_gt
-        self.last_loc = self.curr_loc
-        self.last_sim_location = self.get_sim_location()
-        self.q_initial = self.last_sim_location[2]
+            # Initialize map and pose
+            self.map_size_cm = args.map_size_cm
+            self.mapper.reset_map(self.map_size_cm)
+            self.curr_loc = [self.map_size_cm/100.0/2.0,
+                            self.map_size_cm/100.0/2.0, 0.] # in m 
+            self.curr_loc_gt = self.curr_loc
+            self.last_loc_gt = self.curr_loc_gt
+            self.last_loc = self.curr_loc
+            self.last_sim_location = self.get_sim_location()
+            self.q_initial = self.last_sim_location[2]
 
-        # Convert pose to cm and radians for mapper
-        mapper_gt_pose = (self.curr_loc_gt[0]*100.0,
-                          self.curr_loc_gt[1]*100.0,
-                          np.deg2rad(self.curr_loc_gt[2]))
+            # Convert pose to cm and radians for mapper
+            mapper_gt_pose = (self.curr_loc_gt[0]*100.0,
+                            self.curr_loc_gt[1]*100.0,
+                            np.deg2rad(self.curr_loc_gt[2]))
 
-        # Update ground_truth map and explored area
-        # return agent_view_cropped, map_gt, agent_view_explored, explored_gt
-        fp_proj, self.map, fp_explored, self.explored_map = \
-            self.mapper.update_map(depth, mapper_gt_pose)
-        
-        # Initialize neural implicit map
-        if args.global_arch == 'lena': 
-            self.nerf_map_cfg['mapping']['bound'] = \
-                [   [-self.map_size_cm/100, 0], 
-                    [-1.5,4], 
-                    [-self.map_size_cm/100, 0] ] # habitat is Y-up right-handed
-            self.nerf_map_cfg['mapping']['marching_cubes_bound'] = \
-                self.nerf_map_cfg['mapping']['bound']
-            self.nerf_map_cfg['grid']['voxel_uncert'] = args.map_resolution / 100 
-            self.nerf_map_cfg['data']['exp_name'] = \
-                    self.exp_name + '_ep' + str(self.episode_no)
-            self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
-                                    dataset_info=self.dataset_info)
-            # first frame mapping 
-            batch = data_loading( obs['rgb'], obs['depth'][...,0],
-                                [ -self.curr_loc[1], 
-                                  self.last_sim_location[1],
-                                  -self.curr_loc[0]],
-                                Rotation.from_quat([0,0,0,1]).as_quat(), # scalar last
-                                step=self.timestep,
-                                rays_d=self.rays_d)
-            self.nerf_mapper.run(self.timestep, batch)
-            uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+            # Update ground_truth map and explored area
+            # return agent_view_cropped, map_gt, agent_view_explored, explored_gt
+            fp_proj, self.map, fp_explored, self.explored_map = \
+                self.mapper.update_map(depth, mapper_gt_pose)
+            
+            # Initialize neural implicit map
+            if args.global_arch == 'lena': 
+                self.nerf_map_cfg['mapping']['bound'] = \
+                    [   [-self.map_size_cm/100, 0], 
+                        [-1.5,4], 
+                        [-self.map_size_cm/100, 0] ] # habitat is Y-up right-handed
+                self.nerf_map_cfg['mapping']['marching_cubes_bound'] = \
+                    self.nerf_map_cfg['mapping']['bound']
+                self.nerf_map_cfg['grid']['voxel_uncert'] = args.map_resolution / 100 
+                self.nerf_map_cfg['data']['exp_name'] = \
+                        self.exp_name + '_ep' + str(self.episode_no//2)
+                self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
+                                        dataset_info=self.dataset_info)
+                # first frame mapping 
+                batch = data_loading( obs['rgb'], obs['depth'][...,0],
+                                    [ -self.curr_loc[1], 
+                                    self.last_sim_location[1],
+                                    -self.curr_loc[0]],
+                                    Rotation.from_quat([0,0,0,1]).as_quat(), # scalar last
+                                    step=self.timestep,
+                                    rays_d=self.rays_d)
+                self.nerf_mapper.run(self.timestep, batch)
+                uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+            else:
+                uncert_map = None 
+            
+            if self.args.debug:
+                plt.figure()
+                plt.imshow(self.explorable_map*3 + self.explored_map, cmap='viridis') # multiply with a random scalar to get three colors
+                plt.savefig('./debug/explore_overlap.png')
+
+            # Initialize variables
+            self.scene_name = self.habitat_env.current_episode.scene_id \
+                                .split('/')[-1].split('.')[0]
+            self.visited = np.zeros(self.map.shape)
+            self.visited_vis = np.zeros(self.map.shape)
+            self.visited_gt = np.zeros(self.map.shape)
+            self.collison_map = np.zeros(self.map.shape)
+            self.col_width = 1
+
+            # Set info
+            self.info = {
+                'time': self.timestep,
+                'fp_proj': fp_proj,
+                'fp_explored': fp_explored,
+                'sensor_pose': [0., 0., 0.],
+                'pose_err': [0., 0., 0.],
+                'map': self.map,
+                'uncert_map': uncert_map,
+                'explored_map': self.explored_map,
+                'gt_pose': [self.curr_loc_gt[0],
+                            self.curr_loc_gt[1],
+                            self.curr_loc_gt[2]]
+            }
+
+            self.save_position()
+
+            return state, self.info
         else:
-            uncert_map = None 
-        
-        if self.args.debug:
-            plt.figure()
-            plt.imshow(self.explorable_map*3 + self.explored_map, cmap='viridis') # multiply with a random scalar to get three colors
-            plt.savefig('./debug/explore_overlap.png')
-
-        # Initialize variables
-        self.scene_name = self.habitat_env.current_episode.scene_id \
-                            .split('/')[-1].split('.')[0]
-        self.visited = np.zeros(self.map.shape)
-        self.visited_vis = np.zeros(self.map.shape)
-        self.visited_gt = np.zeros(self.map.shape)
-        self.collison_map = np.zeros(self.map.shape)
-        self.col_width = 1
-
-        # Set info
-        self.info = {
-            'time': self.timestep,
-            'fp_proj': fp_proj,
-            'fp_explored': fp_explored,
-            'sensor_pose': [0., 0., 0.],
-            'pose_err': [0., 0., 0.],
-            'map': self.map,
-            'uncert_map': uncert_map,
-            'explored_map': self.explored_map,
-            'gt_pose': [self.curr_loc_gt[0],
-                        self.curr_loc_gt[1],
-                        self.curr_loc_gt[2]]
-        }
-
-        self.save_position()
-
-        return state, self.info
+            return None, None
 
 
     def step(self, action):
         """
+            unlike reset, step will be called correctly only once
             @return info:
             -'sensor_pose': change between current ad lost pose
             -'gt_pose': x(m), y(m), o (deg)
