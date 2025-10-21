@@ -396,16 +396,17 @@ class Exploration_Env(habitat.RLEnv):
         fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
         
-        if args.global_arch == 'lena':
-            # neural implicit mapping
-            batch = data_loading(   obs['rgb'], obs['depth'][...,0],
-                                   [-self.curr_loc[1], 
-                                    self.last_sim_location[1],
-                                    -self.curr_loc[0]],
-                                    q_relative,
-                                    step=self.timestep,
-                                    rays_d=self.rays_d)
-            self.nerf_mapper.run(self.timestep, batch) 
+        if args.global_arch == 'lena': 
+            if np.any(obs['rgb']): # sometimes it may get a "black" images
+                # neural implicit mapping
+                batch = data_loading(   obs['rgb'], obs['depth'][...,0],
+                                    [-self.curr_loc[1], 
+                                        self.last_sim_location[1],
+                                        -self.curr_loc[0]],
+                                        q_relative,
+                                        step=self.timestep,
+                                        rays_d=self.rays_d)
+                self.nerf_mapper.run(self.timestep, batch) 
             uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
         else:
             uncert_map = None 
