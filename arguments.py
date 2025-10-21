@@ -182,6 +182,8 @@ def get_args():
                         help='num of heads of tensor transfomer')
     parser.add_argument('--tf_dim_head', type=int, default=64,
                         help='dim of heads of tensor transfomer')
+    parser.add_argument('--memory_per_process', type=float, default=3.0,
+                        help='GPU memeory (GB) for a process')
 
 
 
@@ -210,7 +212,7 @@ def get_args():
             # Automatically configure number of training threads based on
             # number of GPUs available and GPU memory size
             total_num_scenes = args.total_num_scenes
-            gpu_memory = 1000
+            gpu_memory = 3000 
             for i in range(num_gpus):
                 gpu_memory = min(gpu_memory,
                     torch.cuda.get_device_properties(i).total_memory \
@@ -218,9 +220,9 @@ def get_args():
                 if i==0:
                     assert torch.cuda.get_device_properties(i).total_memory \
                             /1024/1024/1024 > 10.0, "Insufficient GPU memory"
-
-            num_processes_per_gpu = int(gpu_memory/1.4)
-            num_processes_on_first_gpu = int((gpu_memory - 10.0)/1.4)
+            
+            num_processes_per_gpu = int(gpu_memory/args.memory_per_process)
+            num_processes_on_first_gpu = int((gpu_memory - 10.0)/args.memory_per_process)
 
             if num_gpus == 1:
                 args.num_processes_on_first_gpu = num_processes_on_first_gpu
