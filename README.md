@@ -29,6 +29,10 @@ sudo apt-get install -y --no-install-recommends libjpeg-dev libglm-dev libgl1 li
 ```bash 
 python setup.py install --with-cuda
 ```
+* For headless systems (i.e. without an attached display, e.g. in a cluster) and multiple GPU systems
+```bash 
+python setup.py install --headless --with-cuda
+```
 
 ## Install habitat lab and habitat baseline
 * The instruction below largely follows [this](https://github.com/facebookresearch/habitat-lab).
@@ -59,6 +63,21 @@ pip install -r requirements.txt
 conda install -c conda-forge libstdcxx-ng=13 # get GLIBCXX_3.4.32 for tinycudann
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 pip install "git+https://github.com/facebookresearch/pytorch3d.git"
+```
+
+# Download Gibson dataset 
+* The paths to the datasets need to be modified in `Neural-SLAM/env/habitat/configs/gibson.yaml`. You should modify `data_path` (for the task dataset) and `scenes_dir` (for the gibson scenes) under `dataset`.
+* The Gibson dataset for use with Habitat can be downloaded by agreeing to the terms of use in the Gibson repository. All training and validation scenes of the Gibson dataset for use with Habitat Sim can be downloaded following the commands below. More instructions [here](https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#gibson-and-3dscenegraph-datasets).
+```bash
+wget https://dl.fbaipublicfiles.com/habitat/data/scene_datasets/gibson_habitat_trainval.zip
+unzip -q gibson_habitat_trainval.zip
+```
+* You also need to download the [pointnav_gibson_v1](https://github.com/facebookresearch/habitat-lab/blob/main/DATASETS.md) task dataset. A task dataset consists of many episodes. Each episode includes initial pose of the agent, scene id etc. 
+```bash 
+mkdir pointnav_gibson_v1
+cd pointnav_gibson_v1
+wget https://dl.fbaipublicfiles.com/habitat/data/datasets/pointnav/gibson/v1/pointnav_gibson_v1.zip
+unzip -q pointnav_gibson_v1.zip
 ```
 
 # Run
