@@ -118,7 +118,7 @@ def main():
     per_step_area_coverage = deque(maxlen=1000)
 
     # Starting environments
-    torch.set_num_threads(1)
+    # torch.set_num_threads(1)
     """ 
         create envs
         all the 'computing map for test', semantic warning, 
@@ -402,21 +402,24 @@ def main():
             local_masks = l_masks
             local_goals = output[:, :-1].to(device).long()
 
-            if args.train_local:
-                torch.set_grad_enabled(True)
+            if args.use_FFM_planner == 0:
+                if args.train_local:
+                    torch.set_grad_enabled(True)
 
-            action, action_prob, local_rec_states = l_policy(
-                obs,
-                local_rec_states,
-                local_masks,
-                extras=local_goals,
-            )
+                action, action_prob, local_rec_states = l_policy(
+                    obs,
+                    local_rec_states,
+                    local_masks,
+                    extras=local_goals,
+                )
 
-            if args.train_local:
-                action_target = output[:, -1].long().to(device)
-                policy_loss += nn.CrossEntropyLoss()(action_prob, action_target)
-                torch.set_grad_enabled(False)
-            l_action = action.cpu()
+                if args.train_local:
+                    action_target = output[:, -1].long().to(device)
+                    policy_loss += nn.CrossEntropyLoss()(action_prob, action_target)
+                    torch.set_grad_enabled(False)
+                l_action = action.cpu()
+            else:
+                l_action = output[:,2].cpu().long()
             # ------------------------------------------------------------------
 
             # ------------------------------------------------------------------
@@ -762,4 +765,5 @@ def main():
 
 
 if __name__ == "__main__":
+    print("Starting Neural SLAM Training")
     main()

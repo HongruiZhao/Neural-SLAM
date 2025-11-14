@@ -63,5 +63,8 @@ habitat:
   dataset:
     type: PointNav-v1
     split: val
-    data_path: /home/hongrui/Datasets/habitat/pointnav_gibson_v1/{split}/{split}.json.gz
-    scenes_dir: /home/hongrui/Datasets/habitat/scene_datasets
+    # data_path: /home/hongrui/Datasets/habitat/pointnav_gibson_v1/{split}/{split}.json.gz
+    # scenes_dir: /home/hongrui/Datasets/habitat/scene_datasets
+
+    data_path: /p/cral/Datasets/habitat/pointnav_gibson_v1/{split}/{split}.json.gz
+    scenes_dir: /p/cral/Datasets/habitat/scene_datasets

@@ -1,0 +1,1 @@
+load_local = /p/cral/aneesh/exp_thread_results/models/half_step_distance_angle_SLURM_JOB_ID/model_best.local

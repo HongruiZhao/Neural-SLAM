@@ -671,7 +671,11 @@ class Exploration_Env(habitat.RLEnv):
         stg = self._get_stg(grid, explored, start, np.copy(goal), planning_window)
 
         # Find GT action
-        if self.args.eval or not self.args.train_local:
+        if self.args.use_FFM_planner:
+            gt_action = self._get_gt_action(1 - self.explorable_map, start,
+                                            [int(stg[0]), int(stg[1])],
+                                            planning_window, start_o)
+        elif self.args.eval or not self.args.train_local:
             gt_action = 0
         else:
             gt_action = self._get_gt_action(1 - self.explorable_map, start,

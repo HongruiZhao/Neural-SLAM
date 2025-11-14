@@ -2,7 +2,7 @@ split =  val
 eval =  1 
 debug = 0
 auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
-num_processes = 1 # 4 processes by default. used when auto_gpu_config is false
+num_processes = 4 # 4 processes by default. used when auto_gpu_config is false
 max_episode_length = 1000 #1000 for default
 num_episodes = 1
 
@@ -20,9 +20,9 @@ global_arch = lena
 num_local_steps = 25 # default 25 
 noisy_odometry = 0
 collision_threshold = 0.001
-obstacle_boundary = 20 # default 5
+obstacle_boundary = 40 # default 5
 
 print_images = 1
 vis_type = 1 # 2 show GT map, 1 show predicted map
 dump_location = results/
-exp_name = test_Oct17
+exp_name = ffm_planner

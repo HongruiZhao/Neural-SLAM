@@ -132,7 +132,7 @@ def get_args():
                             perform between each global instruction""")
     parser.add_argument('--local_hidden_size', type=int, default=512,
                         help='local_hidden_size')
-    parser.add_argument('--short_goal_dist', type=int, default=1,
+    parser.add_argument('--short_goal_dist', type=int, default=5,
                         help="""Maximum distance between the agent
                                 and the short term goal""")
     parser.add_argument('--local_policy_update_freq', type=int, default=5)
@@ -184,7 +184,8 @@ def get_args():
                         help='dim of heads of tensor transfomer')
     parser.add_argument('--memory_per_process', type=float, default=3.0,
                         help='GPU memeory (GB) for a process')
-
+    parser.add_argument('--output-debug-env', type=int, default=0)
+    parser.add_argument('--use-FFM-planner', type=int, default=0)
 
 
     # parse arguments
