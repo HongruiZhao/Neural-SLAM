@@ -1,9 +1,7 @@
-    {
-            "name": "Python: Debug Console",
-            "type": "python",
-            "request": "launch",
-            "program": "${file}",
-            "cwd":"${workspaceFolder}/starTrackerSimulator_ver_3/src",
-            "console": "internalConsole",
-            "stopOnEntry": true
-        }
+habitat:
+  environment:
+    max_episode_steps: 500
+  simulator:
+    habitat_sim_v0:
+      gpu_device_id: 0
+      allow_sliding: True

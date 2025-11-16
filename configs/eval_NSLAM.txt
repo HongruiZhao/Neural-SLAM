@@ -1,0 +1,31 @@
+split =  val
+eval =  1 
+debug = 0
+auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
+num_processes = 4 #4 processes by default. used when auto_gpu_config is false
+max_episode_length = 1500 #1000 for default
+num_episodes = 1
+camera_height = 0.5 # 1.25 by default
+
+train_global = 0
+train_local = 0
+train_slam = 0
+use_nslam = 0
+
+load_global = pretrained_models/model_best.global
+load_local = pretrained_models/model_best.local
+load_slam = pretrained_models/model_best.slam
+use_DD_PPO = pretrained_models/gibson-2plus-resnet50.pth
+
+global_arch = lena #NeuralSLAM
+
+num_local_steps = 1500 # default 25 
+noisy_odometry = 0
+collision_threshold = 0.001
+obstacle_boundary = 35 # default 5
+use_deterministic_local = 0
+
+print_images = 1
+vis_type = 2 # 2 show GT map, 1 show predicted map
+dump_location = results/
+exp_name = nov11_ddppo

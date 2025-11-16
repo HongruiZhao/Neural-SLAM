@@ -12,6 +12,7 @@ use_nslam = 0
 load_global = pretrained_models/model_best.global
 load_local = pretrained_models/model_best.local
 load_slam = pretrained_models/model_best.slam
+use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
 
 global_arch = lena
 num_global_steps = 40 # default 40
@@ -21,6 +22,7 @@ num_local_steps = 25 # default is 25
 noisy_odometry = 0
 collision_threshold = 0.001
 obstacle_boundary = 20 # default 5
+use_deterministic_local = 0
 
 dump_location = results/
-exp_name = train_uncert_Oct19
+exp_name = train_lena_Nov3

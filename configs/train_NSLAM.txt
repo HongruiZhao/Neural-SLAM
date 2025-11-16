@@ -1,14 +1,15 @@
 auto_gpu_config = 0
-num_processes = 1
+num_processes = 8
 debug = 0
 max_episode_length = 1000 #1000 for default
-num_episodes = 5 #by default
+num_episodes = 1250 #by default
 
 train_local = 0
 train_slam = 0
 train_global = 1
 use_nslam = 0
 
+load_global = pretrained_models/model_best.global
 load_local = pretrained_models/model_best.local
 load_slam = pretrained_models/model_best.slam
 
@@ -22,4 +23,4 @@ collision_threshold = 0.001
 obstacle_boundary = 20 # default 5
 
 dump_location = results/
-exp_name = speed_test_lena_Oct8
+exp_name = train_baseline_Oct22

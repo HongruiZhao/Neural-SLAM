@@ -8,6 +8,9 @@ from utils.distributions import Categorical, DiagGaussian
 from utils.model import get_grid, ChannelPool, Flatten, NNBase
 from mvt.tensor_view_transformer import TensorViewTransformer
 
+from habitat_baselines.rl.ddppo.policy.resnet_policy import PointNavResNetPolicy
+from gym.spaces import Box, Dict, Discrete
+from einops import rearrange 
 # Global Policy model code
 class Global_Policy_Tensor(NNBase):
 
@@ -535,3 +538,100 @@ class RL_Policy(nn.Module):
         dist_entropy = dist.entropy().mean()
 
         return value, action_log_probs, dist_entropy, rnn_hxs
+
+
+
+
+
+class DdppoPolicy(nn.Module):
+    def __init__(self,
+                 path, num_scenes):
+        super().__init__()
+
+        spaces = {
+            'pointgoal_with_gps_compass': Box(
+                low=np.finfo(np.float32).min,
+                high=np.finfo(np.float32).max,
+                shape=(2,),
+                dtype=np.float32,
+            )
+        }
+
+        spaces["depth"] = Box(
+                low=0,
+                high=1,
+                shape=(256, 256, 1),
+                dtype=np.float32,
+            )
+
+        observation_space = Dict(spaces)
+        action_space = Discrete(4)
+
+        checkpoint = torch.load(path, weights_only=False)
+        self.hidden_size = checkpoint['model_args'].hidden_size
+        # The model must be named self.actor_critic to make the namespaces correct for loading
+        self.actor_critic = PointNavResNetPolicy(observation_space=observation_space,
+            action_space=action_space,
+            hidden_size=self.hidden_size,
+            num_recurrent_layers=2,
+            rnn_type="LSTM",
+            backbone="resnet50")
+
+        self.actor_critic.load_state_dict(
+                {
+                    k[len("actor_critic.") :]: v
+                    for k, v in checkpoint['state_dict'].items()
+                    if "actor_critic" in k
+                }
+            )
+        self.actor_critic.eval()
+        self.num_scenes = num_scenes
+        self.hidden_state = torch.zeros(self.num_scenes, self.actor_critic.net.num_recurrent_layers, checkpoint['model_args'].hidden_size)
+        self.prev_actions = torch.zeros(self.num_scenes, 1, dtype=torch.long)
+
+
+
+    def plan(self, depth, global_goals, planner_pose_inputs, local_masks, step, map_resolution, device):
+        """
+            Args:
+                depth: 
+                global_goals: a list of num_scenes x global waypoints. in pixels (scaled by map_resolution), local window origin.
+                planner_pose_inputs: 
+                    - num_scenes x 7. 
+                    - 1-3 store continuous global agent x(m), y(m), o (deg). 
+                    - 4-7 store local map boundaries (gx1, gx2, gy1, gy2) in pixels (scaled by map_resolution)
+                local_masks: num_scenes x 1 indicating if a scene is done or not. = 1 not done
+                step: 
+                map_resolution: in cm 
+                device:
+            Returns:
+                actions:
+        """
+        global_goals = np.array(global_goals) 
+        goal_x = (global_goals[:,0] + planner_pose_inputs[:,3]) * map_resolution / 100 # pixel->cm->m
+        goal_y = (global_goals[:,1] + planner_pose_inputs[:,5]) * map_resolution / 100 # pixel->cm->m
+        start_x, start_y = planner_pose_inputs[:,0], planner_pose_inputs[:,1]
+        dist = np.linalg.norm(np.stack([goal_x-start_x, goal_y-start_y]), axis=0)
+        angle = np.arctan2(goal_y-start_y, goal_x-start_x) - np.deg2rad(planner_pose_inputs[:,2]) # world frame -> egocentric
+        pointgoal = np.stack([dist,angle]).T # num_scenes x 2. col for dist, angle
+        pointgoal = torch.from_numpy(pointgoal).to(dtype=torch.float32, device=device)
+
+        depth = torch.from_numpy(depth).to(device) # need this since we set gpu_gpu to false 
+        depth = rearrange(depth, 'b c h w -> b h w c')
+        
+        batch = {'depth': depth, 'pointgoal_with_gps_compass': pointgoal}
+
+        local_masks = rearrange(local_masks, '(b c) -> b c', c=1)
+        output = self.actor_critic.act(batch,
+                                    self.hidden_state.to(depth.device),
+                                    self.prev_actions.to(depth.device),
+                                    local_masks,
+                                    deterministic=True)
+        actions = output.actions
+        self.hidden_state = output.rnn_hidden_states
+        self.prev_actions = torch.clone(actions)
+        return actions
+
+    def reset(self):
+        self.hidden_state = torch.zeros_like(self.hidden_state)
+        self.prev_actions = torch.zeros_like(self.prev_actions)

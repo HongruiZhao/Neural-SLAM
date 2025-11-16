@@ -35,7 +35,9 @@ def get_args():
                         help="""0: Do not train the Neural SLAM Module
                                 1: Train the Neural SLAM Module (default: 1)""")
     parser.add_argument('--use_nslam', type=int, default=1) # =0 will use gt map and pose instead
-
+    parser.add_argument('--memory_per_process', type=float, default=3.0,
+                        help='GPU memeory (GB) for a process')
+    
     # Logging, loading models, visualization
     parser.add_argument('--log_interval', type=int, default=10,
                         help="""log interval, one log per n updates
@@ -140,7 +142,9 @@ def get_args():
                         help='use a recurrent local policy')
     parser.add_argument('--use_deterministic_local', type=int, default=0,
                         help="use classical deterministic local policy")
-
+    parser.add_argument('--use_DD_PPO', type=str, default='none',
+                        help="use DD-PPO as local policy. input path to pretrianed model")
+    
     # Neural SLAM Module
     parser.add_argument('-pe', '--use_pose_estimation', type=int, default=2)
     parser.add_argument('--goals_size', type=int, default=2)
@@ -182,8 +186,7 @@ def get_args():
                         help='num of heads of tensor transfomer')
     parser.add_argument('--tf_dim_head', type=int, default=64,
                         help='dim of heads of tensor transfomer')
-    parser.add_argument('--memory_per_process', type=float, default=3.0,
-                        help='GPU memeory (GB) for a process')
+
 
 
 
