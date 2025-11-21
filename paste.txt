@@ -1,7 +1,0 @@
-habitat:
-  environment:
-    max_episode_steps: 500
-  simulator:
-    habitat_sim_v0:
-      gpu_device_id: 0
-      allow_sliding: True

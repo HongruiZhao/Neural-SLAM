@@ -147,18 +147,16 @@ class Exploration_Env(habitat.RLEnv):
                                                 (3, args.frame_height,
                                                     args.frame_width),
                                                 dtype='uint8')
-
         self.mapper = self.build_mapper()
-
         self.episode_no = 0
-
         self.res = transforms.Compose([transforms.ToPILImage(),
                     transforms.Resize((args.frame_height, args.frame_width),
                                       interpolation = Image.NEAREST)])
         self.scene_name = None
         self.maps_dict = {}
         self.accumulated_ratio = 0
-
+        if args.randomize_env_every > 0:
+            self._env.episode_iterator.shuffle = True
 
         # for neural implicit mapping 
         self.nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
@@ -173,11 +171,6 @@ class Exploration_Env(habitat.RLEnv):
         self.nerf_mapper = None # will get created at reset 
         self.exp_name = self.nerf_map_cfg['data']['exp_name']
         self.q_initial = None # quat of cam to world at reset 
-
-    # def randomize_env(self):
-    #     # https://aihabitat.org/docs/habitat-lab/habitat.core.dataset.EpisodeIterator.html#dunder-methods
-    #     # shuffles the remaining episodes
-    #     self._env.episode_iterator._shuffle()
 
     def save_trajectory_data(self):
         if "replica" in self.scene_name:
@@ -217,13 +210,14 @@ class Exploration_Env(habitat.RLEnv):
         self.trajectory_states = []
         self.accumulated_ratio = 0
 
+
         if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
             # shuffle into a different episode
             # episodes are loaded from task dataset like pointnav_gibson_v1
             # an episode includes initial position and rotation of agent, scene id, episode_id
-            # if args.randomize_env_every > 0: 
-            #     if np.mod(self.episode_no, args.randomize_env_every) == 0:
-            #         self.randomize_env()
+            if args.randomize_env_every > 0:
+                if np.mod(self.episode_no, args.randomize_env_every) == 0:
+                    self._env.episode_iterator._shuffle()
 
             # Get Ground Truth Map
             self.explorable_map = None
@@ -761,11 +755,11 @@ class Exploration_Env(habitat.RLEnv):
             #vis_grid = np.flipud(vis_grid)
             vu.visualize(self.figure, self.ax, 
                          self.obs, vis_grid[:,:,::-1], self.uncert_map,
-                        (start_x - gy1*args.map_resolution/100.0,
-                         start_y - gx1*args.map_resolution/100.0,
+                        (start_x - gx1*args.map_resolution/100.0,
+                         start_y - gy1*args.map_resolution/100.0,
                          start_o),
-                        (start_x_gt - gy1*args.map_resolution/100.0,
-                         start_y_gt - gx1*args.map_resolution/100.0,
+                        (start_x_gt - gx1*args.map_resolution/100.0,
+                         start_y_gt - gy1*args.map_resolution/100.0,
                          start_o_gt),
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,

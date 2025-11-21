@@ -621,7 +621,7 @@ class DdppoPolicy(nn.Module):
         
         batch = {'depth': depth, 'pointgoal_with_gps_compass': pointgoal}
 
-        local_masks = rearrange(local_masks, '(b c) -> b c', c=1)
+        local_masks = rearrange(local_masks, '(b c) -> b c', c=1).to(torch.bool)
         output = self.actor_critic.act(batch,
                                     self.hidden_state.to(depth.device),
                                     self.prev_actions.to(depth.device),

@@ -444,8 +444,8 @@ def main():
             if l_step == args.num_local_steps - 1:
                 # For every global step, update the full and local maps
                 for e in range(num_scenes):
-                    full_map[e, :, lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] = \
-                        local_map[e]
+                    full_map[e, :, lmb[e, 2]:lmb[e, 3], lmb[e, 0]:lmb[e, 1]] = \
+                        local_map[e] # update full map
                     full_pose[e] = local_pose[e] + \
                                    torch.from_numpy(origins[e]).to(device).float()
 
@@ -457,14 +457,14 @@ def main():
                     lmb[e] = get_local_map_boundaries((loc_r, loc_c),
                                                       (local_w, local_h),
                                                       (full_w, full_h),
-                                                      args.global_downscaling)
+                                                      args.global_downscaling) # get new lmb
 
                     planner_pose_inputs[e, 3:] = lmb[e]
                     origins[e] = [lmb[e][0] * args.map_resolution / 100.0,
                                   lmb[e][2] * args.map_resolution / 100.0, 0.]
 
                     local_map[e] = full_map[e, :,
-                                   lmb[e, 2]:lmb[e, 3], lmb[e, 0]:lmb[e, 1]]
+                                   lmb[e, 2]:lmb[e, 3], lmb[e, 0]:lmb[e, 1]] # local map with new boundaires
                     local_pose[e] = full_pose[e] - \
                                     torch.from_numpy(origins[e]).to(device).float()
 
