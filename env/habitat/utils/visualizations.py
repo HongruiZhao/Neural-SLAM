@@ -114,6 +114,7 @@ def visualize(fig, ax,
         plt.tight_layout()
 
     if visualize:
+        print("vis!")
         plt.gcf().canvas.flush_events()
         fig.canvas.start_event_loop(0.001)
         plt.gcf().canvas.flush_events()

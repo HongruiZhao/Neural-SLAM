@@ -25,7 +25,7 @@ obstacle_boundary = 20 # default 5, obstacle map dilation
 
 print_images = 1
 vis_type = 2 # 3 shows both, 2 show GT map, 1 show predicted map
-dump_location = results/
+dump_location = /p/cral/aneesh/exp_thread_results/
 exp_name = ffm_planner
 
-use_ffm_planner = 1
+use_ffm_planner = 0

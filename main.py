@@ -194,7 +194,7 @@ def main():
                                         }).to(device)
     elif args.global_arch == 'lena':
         g_policy = RL_Policy(g_observation_space.shape, g_action_space,
-                            model_type='NeuralSLAM',
+                            model_type='lena',
                             base_kwargs={'recurrent': args.use_recurrent_global,
                                         'hidden_size': g_hidden_size,
                                         'downscaling': args.global_downscaling
@@ -322,6 +322,11 @@ def main():
 
     torch.set_grad_enabled(False)
 
+    # Initialize variables for pose stability check
+    num_steps_stuck = np.zeros(num_scenes, dtype=int)  # Counter for each agent
+    previous_poses = np.zeros((num_scenes, 3))  # Store previous poses
+    is_stuck = np.zeros(num_scenes, dtype=bool)  # Boolean array for stability
+
     for ep_num in trange(num_episodes):
         if args.use_DD_PPO != 'none':
             l_policy.reset()
@@ -333,6 +338,22 @@ def main():
 
             # ------------------------------------------------------------------
             # Local Planner and Policy
+
+            print("Agent poses: ", local_pose)
+            # Check if local_pose has remained the same for at least n loops
+            current_poses = local_pose.cpu().numpy()  # Convert to NumPy array for comparison
+
+            for i in range(num_scenes):
+                if np.array_equal(current_poses[i], previous_poses[i]):
+                    num_steps_stuck[i] += 1
+                else:
+                    num_steps_stuck[i] = 0  # Reset counter if poses differ
+
+                previous_poses[i] = current_poses[i]
+
+                # Set is_stuck boolean if counter reaches 10n
+                is_stuck[i] = num_steps_stuck[i] >= args.stuck_limit
+            print("Pose stuck for each agent:", is_stuck)
 
             # use ground truth local planner
             if args.use_ffm_planner == 0:
@@ -376,15 +397,21 @@ def main():
                     
             # use ground truth local planner from NSLAM codebase
             else:
-                l_action = output[:,2].cpu().long()    
+                with torch.no_grad():
+                    output = run_local_planner(num_scenes, 
+                                global_goals, global_input, planner_pose_inputs,
+                                envs)
+                    l_action = output[:,2].cpu().long()    
             
             # for visualization
             if args.print_images:
-                visualize_map(  num_scenes, 
-                                global_goals, global_input, planner_pose_inputs,
-                                envs)
+                visualize_map(num_scenes, 
+                              global_goals, global_input, planner_pose_inputs,
+                              envs)
 
             # ------------------------------------------------------------------
+
+            print("Local Action: ", l_action, l_action.shape)
 
             # ------------------------------------------------------------------
             # Env step

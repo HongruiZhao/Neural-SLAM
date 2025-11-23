@@ -186,10 +186,11 @@ def get_args():
                         help='num of heads of tensor transfomer')
     parser.add_argument('--tf_dim_head', type=int, default=64,
                         help='dim of heads of tensor transfomer')
-    parser.add_argument('--memory_per_process', type=float, default=3.0,
-                        help='GPU memeory (GB) for a process')
     parser.add_argument('--output_debug_env', type=int, default=0)
     parser.add_argument('--use_ffm_planner', type=int, default=0)
+
+    parser.add_argument('--stuck_limit', type=int, default=10, 
+                        help='number of steps until an agent is considered stuck')
 
 
     # parse arguments

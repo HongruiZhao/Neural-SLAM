@@ -12,7 +12,7 @@ habitat:
   simulator:
     habitat_sim_v0:
       gpu_device_id: 0
-      allow_sliding: True
+      allow_sliding: False
       gpu_gpu: False
     agents:
       main_agent:
