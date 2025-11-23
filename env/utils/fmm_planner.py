@@ -67,8 +67,8 @@ class FMMPlanner():
 
         dist = np.pad(self.fmm_dist, self.du,
                       'constant', constant_values=self.fmm_dist.shape[0] ** 2)
-        subset = dist[state[0]:state[0] + 2 * self.du + 1,
-                 state[1]:state[1] + 2 * self.du + 1]
+        subset = dist[state[1]:state[1] + 2 * self.du + 1,
+                 state[0]:state[0] + 2 * self.du + 1]
 
         assert subset.shape[0] == 2 * self.du + 1 and \
                subset.shape[1] == 2 * self.du + 1, \
@@ -83,8 +83,8 @@ class FMMPlanner():
         trav = np.pad(self.traversible, self.du,
                       'constant', constant_values=0)
 
-        subset_trav = trav[state[0]:state[0] + 2 * self.du + 1,
-                      state[1]:state[1] + 2 * self.du + 1]
+        subset_trav = trav[state[1]:state[1] + 2 * self.du + 1,
+                      state[0]:state[0] + 2 * self.du + 1]
         traversible_ma = ma.masked_values(subset_trav * 1, 0)
         goal_x, goal_y = self.du, self.du
         traversible_ma[goal_y, goal_x] = 0

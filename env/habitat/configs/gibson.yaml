@@ -12,11 +12,12 @@ habitat:
   simulator:
     habitat_sim_v0:
       gpu_device_id: 0
-      allow_sliding: False
+      allow_sliding: True
       gpu_gpu: False
     agents:
       main_agent:
         height: 1.5
+        radius: 0.1 
         sim_sensors:
           rgb_sensor:
             type: HabitatSimRGBSensor

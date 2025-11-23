@@ -29,52 +29,76 @@ desc = ['path', 'gt_path', 'collision', 'pred obstacle', 'explorable', 'explored
 color_palette = sns.color_palette([rei_white, rei_white2, eva_darkpurple, eva_green, eva_purple1, eva_orange, eva02_red, rei_blue])
 
 
-def visualize(fig, ax, img, grid, pos, gt_pos, dump_dir, rank, ep_no, t,
-              visualize, print_images, vis_style, previous_action, accumulated_ratio):
+def visualize(fig, ax, 
+              img, grid, uncert_map,
+              pos, gt_pos, 
+              dump_dir, rank, ep_no, t,
+              visualize, print_images, previous_action, accumulated_ratio):
     """
-        @param rank: Thread No.
-        @param ep_no: current episode
-        @param t: time step
-        @param accumulated_ratio: percentage of map exlored
+    Args:
+        rank: Thread No.
+        ep_no: current episode
+        t: time step
+        accumulated_ratio: percentage of map exlored
     """
-    for i in range(2):
-        ax[i].clear()
-        ax[i].set_yticks([])
-        ax[i].set_xticks([])
-        ax[i].set_yticklabels([])
-        ax[i].set_xticklabels([])
+    if uncert_map is None:
+        for i in range(2):
+            ax[i].clear()
+            ax[i].set_yticks([])
+            ax[i].set_xticks([])
+            ax[i].set_yticklabels([])
+            ax[i].set_xticklabels([])
 
-    ax[0].imshow(img)
-    ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
+        ax[0].imshow(img)
+        ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
 
-    title = f"Step={t}, Exp_ratio={accumulated_ratio:.2f}"
+        title = f"Step={t}, Exp_ratio={accumulated_ratio:.2f}"
 
-    ax[1].imshow(grid)
-    ax[1].set_title(title, fontsize=15)
+        ax[1].imshow(grid, origin='lower') # to be right hand coordinate
+        ax[1].set_title(title, fontsize=15)
+    else:
+        for i in range(3):
+            ax[i].clear()
+            ax[i].set_yticks([])
+            ax[i].set_xticks([])
+            ax[i].set_yticklabels([])
+            ax[i].set_xticklabels([])
+
+        ax[0].imshow(img)
+        ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
+
+        title = f"Step={t}, Exp_ratio={accumulated_ratio:.2f}"
+ 
+        ax[1].imshow(grid, origin='lower') # to be right hand coordinate
+        ax[1].set_title(title, fontsize=15)
+
+        ax[2].imshow(uncert_map, origin='lower', cmap='plasma') # to be right hand coordinate
+        ax[2].set_title('Uncertainty_map', fontsize=15)
 
     # Draw GT agent pose
     agent_size = 8
     x, y, o = gt_pos
-    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
+    #x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
+    x, y = x * 100.0 / 5.0, y * 100.0 / 5.0
 
     dx = 0
     dy = 0
     fc = 'Grey'
     dx = np.cos(np.deg2rad(o))
-    dy = -np.sin(np.deg2rad(o))
+    dy = np.sin(np.deg2rad(o))
     ax[1].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * (agent_size * 1.25),
                 head_width=agent_size, head_length=agent_size * 1.25,
                 length_includes_head=True, fc=fc, ec=fc, alpha=0.9)
 
     # Draw predicted agent pose
     x, y, o = pos
-    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
-
+    #x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
+    x, y = x * 100.0 / 5.0, y * 100.0 / 5.0
     dx = 0
     dy = 0
     fc = 'Red'
     dx = np.cos(np.deg2rad(o))
-    dy = -np.sin(np.deg2rad(o))
+    dy = np.sin(np.deg2rad(o))
     ax[1].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * agent_size * 1.25,
                 head_width=agent_size, head_length=agent_size * 1.25,
                 length_includes_head=True, fc=fc, ec=fc, alpha=0.6)
@@ -199,9 +223,9 @@ def visualize_both(fig, ax, img, grid, grid2, gt_offset, pos, gt_pos, dump_dir, 
 
 
 def insert_circle(map, x, y, value):
-    map[x - 2: x + 3, y - 2:y + 3] = value
-    map[x - 3:x + 4, y - 1:y + 2] = value
-    map[x - 1:x + 2, y - 3:y + 4] = value
+    map[y - 2:y + 3, x - 2:x + 3] = value
+    map[y - 3:y + 4, x - 1:x + 2] = value
+    map[y - 1:y + 2, x - 3:x + 4] = value
     return map
 
 
@@ -219,7 +243,7 @@ def get_colored_map(map, collision_map, visited, visited_gt, goal, local_goal,
         @param collision_map: collision points along the map
         @param visited: predicted visited path
         @param visited_gt: gt visited path
-        @param goal: local term goal from global policy 
+        @param goal: long term goal from global policy 
         @param local_goal: local goal from planner 
         @param explored: gt explored map 
         @param gt_map: total explorable map 
@@ -243,7 +267,7 @@ def get_colored_map(map, collision_map, visited, visited_gt, goal, local_goal,
     # plot global goal 
     selem = skimage.morphology.disk(4)
     goal_map = np.zeros((m, n))
-    goal_map[goal[0], goal[1]] = 1
+    goal_map[goal[1], goal[0]] = 1
     goal_map = 1 - skimage.morphology.binary_dilation(
         goal_map, selem) != True
 
@@ -252,7 +276,7 @@ def get_colored_map(map, collision_map, visited, visited_gt, goal, local_goal,
     # plot local goal
     selem = skimage.morphology.disk(4)
     local_goal_map = np.zeros((m, n))
-    local_goal_map[int(local_goal[0]), int(local_goal[1])] = 1
+    local_goal_map[int(local_goal[1]), int(local_goal[0])] = 1
     local_goal_map = 1 - skimage.morphology.binary_dilation(
         local_goal_map, selem) != True
     colored = fill_color(colored, local_goal_map, color_palette[7])

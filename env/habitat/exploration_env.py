@@ -116,14 +116,25 @@ class Exploration_Env(habitat.RLEnv):
     def __init__(self, args, rank, config_env, config_baseline, dataset):
         if args.visualize:
             plt.ion()
-        if (args.print_images or args.visualize) and (args.vis_type == 1 or args.vis_type == 2):
-            self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
-                                                facecolor="whitesmoke",
-                                                num="Thread {}".format(rank))
-        elif (args.print_images or args.visualize) and args.vis_type == 3:
-            self.figure, self.ax = plt.subplots(1,3, figsize=(6*16/9 * 3/2, 6),
-                                                facecolor="whitesmoke",
-                                                num="Thread {}".format(rank))
+
+        # TODO: add option to visualize ground truth map alongside lena
+        # if (args.print_images or args.visualize) and (args.vis_type == 1 or args.vis_type == 2):
+        #     self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
+        #                                         facecolor="whitesmoke",
+        #                                         num="Thread {}".format(rank))
+        # elif (args.print_images or args.visualize) and args.vis_type == 3:
+        #     self.figure, self.ax = plt.subplots(1,3, figsize=(6*16/9 * 3/2, 6),
+        #                                         facecolor="whitesmoke",
+        #                                         num="Thread {}".format(rank))
+        if args.print_images or args.visualize:
+            if args.global_arch == 'lena':
+                self.figure, self.ax = plt.subplots(1,3, figsize=(9*16/9, 6),
+                                    facecolor="whitesmoke",
+                                    num="Thread {}".format(rank))
+            else:
+                self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
+                                        facecolor="whitesmoke",
+                                        num="Thread {}".format(rank))
         self.args = args
         self.num_actions = 3
         self.dt = 10
@@ -146,18 +157,16 @@ class Exploration_Env(habitat.RLEnv):
                                                 (3, args.frame_height,
                                                     args.frame_width),
                                                 dtype='uint8')
-
         self.mapper = self.build_mapper()
-
         self.episode_no = 0
-
         self.res = transforms.Compose([transforms.ToPILImage(),
                     transforms.Resize((args.frame_height, args.frame_width),
                                       interpolation = Image.NEAREST)])
         self.scene_name = None
         self.maps_dict = {}
         self.accumulated_ratio = 0
-
+        if args.randomize_env_every > 0:
+            self._env.episode_iterator.shuffle = True
 
         # for neural implicit mapping 
         self.nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
@@ -172,11 +181,6 @@ class Exploration_Env(habitat.RLEnv):
         self.nerf_mapper = None # will get created at reset 
         self.exp_name = self.nerf_map_cfg['data']['exp_name']
         self.q_initial = None # quat of cam to world at reset 
-
-    # def randomize_env(self):
-    #     # https://aihabitat.org/docs/habitat-lab/habitat.core.dataset.EpisodeIterator.html#dunder-methods
-    #     # shuffles the remaining episodes
-    #     self._env.episode_iterator._shuffle()
 
     def save_trajectory_data(self):
         if "replica" in self.scene_name:
@@ -211,17 +215,19 @@ class Exploration_Env(habitat.RLEnv):
         args = self.args
         self.episode_no += 1
         self.timestep = 0
+        self.NeRF_timestep = 0
         self._previous_action = None
         self.trajectory_states = []
         self.accumulated_ratio = 0
+
 
         if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
             # shuffle into a different episode
             # episodes are loaded from task dataset like pointnav_gibson_v1
             # an episode includes initial position and rotation of agent, scene id, episode_id
-            # if args.randomize_env_every > 0: 
-            #     if np.mod(self.episode_no, args.randomize_env_every) == 0:
-            #         self.randomize_env()
+            if args.randomize_env_every > 0:
+                if np.mod(self.episode_no, args.randomize_env_every) == 0:
+                    self._env.episode_iterator._shuffle()
 
             # Get Ground Truth Map
             self.explorable_map = None
@@ -287,12 +293,12 @@ class Exploration_Env(habitat.RLEnv):
                                     self.last_sim_location[1],
                                     -self.curr_loc[0]],
                                     Rotation.from_quat([0,0,0,1]).as_quat(), # scalar last
-                                    step=self.timestep,
+                                    step=self.NeRF_timestep,
                                     rays_d=self.rays_d)
-                self.nerf_mapper.run(self.timestep, batch)
-                uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+                self.nerf_mapper.run(self.NeRF_timestep, batch)
+                self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
             else:
-                uncert_map = None 
+                self.uncert_map = None 
             
             if self.args.debug:
                 plt.figure()
@@ -316,11 +322,12 @@ class Exploration_Env(habitat.RLEnv):
                 'sensor_pose': [0., 0., 0.],
                 'pose_err': [0., 0., 0.],
                 'map': self.map,
-                'uncert_map': uncert_map,
+                'uncert_map': self.uncert_map,
                 'explored_map': self.explored_map,
                 'gt_pose': [self.curr_loc_gt[0],
                             self.curr_loc_gt[1],
-                            self.curr_loc_gt[2]]
+                            self.curr_loc_gt[2]],
+                'depth': obs['depth'].transpose(2, 0, 1),
             }
 
             self.save_position()
@@ -341,15 +348,17 @@ class Exploration_Env(habitat.RLEnv):
         self.timestep += 1
 
         # Action remapping
-        if action == 2: # Forward
+        if action == 0: # Forward
+            action = 'stop'
+        elif action == 1: # Forward
             action = 'move_forward'
             #noisy_action = HabitatSimActions.NOISY_FORWARD
-        elif action == 1: # Right
-            action = 'turn_right'
-            #noisy_action = HabitatSimActions.NOISY_RIGHT
-        elif action == 0: # Left
+        elif action == 2: # Left
             action = 'turn_left'
             #noisy_action = HabitatSimActions.NOISY_LEFT
+        elif action == 3: # Right
+            action = 'turn_right'
+            #noisy_action = HabitatSimActions.NOISY_RIGHT
 
         self.last_loc = np.copy(self.curr_loc)
         self.last_loc_gt = np.copy(self.curr_loc_gt)
@@ -401,19 +410,20 @@ class Exploration_Env(habitat.RLEnv):
                 self.mapper.update_map(depth, mapper_gt_pose)
         
         if args.global_arch == 'lena': 
-            if np.any(obs['rgb']): # sometimes it may get a "black" images
+            if np.any(obs['rgb']): # sometimes it may get a "black" images. only update NeRF with valid images 
+                self.NeRF_timestep += 1
                 # neural implicit mapping
                 batch = data_loading(   obs['rgb'], obs['depth'][...,0],
                                     [-self.curr_loc[1], 
                                         self.last_sim_location[1],
                                         -self.curr_loc[0]],
                                         q_relative,
-                                        step=self.timestep,
+                                        step=self.NeRF_timestep,
                                         rays_d=self.rays_d)
-                self.nerf_mapper.run(self.timestep, batch) 
-            uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+                self.nerf_mapper.run(self.NeRF_timestep, batch) 
+            self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
         else:
-            uncert_map = None 
+            self.uncert_map = None 
 
         # Update collision map
         if action == 'move_forward': 
@@ -448,7 +458,7 @@ class Exploration_Env(habitat.RLEnv):
         self.info['fp_proj'] = fp_proj
         self.info['fp_explored']= fp_explored
         self.info['map'] = self.map,
-        self.info['uncert_map'] = uncert_map
+        self.info['uncert_map'] = self.uncert_map
         self.info['explored_map'] = self.explored_map,
         self.info['sensor_pose'] = [dx_base, dy_base, do_base]
         self.info['pose_err'] = [dx_gt - dx_base,
@@ -457,6 +467,7 @@ class Exploration_Env(habitat.RLEnv):
         self.info['gt_pose'] = [self.curr_loc_gt[0],
                                 self.curr_loc_gt[1],
                                 self.curr_loc_gt[2]]
+        self.info['depth'] = obs['depth'].transpose(2, 0, 1)
         if self.timestep%args.num_local_steps==0:
             area, ratio = self.get_global_reward()
             self.info['exp_reward'] = area # area per step, no accumulated
@@ -554,9 +565,9 @@ class Exploration_Env(habitat.RLEnv):
             agent_state.rotation.w
         ]).as_quat()
 
-        axis = quaternion.as_euler_angles(agent_state.rotation)[0]
+        axis = quaternion.as_euler_angles(agent_state.rotation)[0] # ZYZ rotation
         if (axis%(2*np.pi)) < 0.1 or (axis%(2*np.pi)) > 2*np.pi - 0.1:
-            o = quaternion.as_euler_angles(agent_state.rotation)[1]
+            o = quaternion.as_euler_angles(agent_state.rotation)[1] 
         else:
             o = 2*np.pi - quaternion.as_euler_angles(agent_state.rotation)[1]
         if o > np.pi:
@@ -617,39 +628,38 @@ class Exploration_Env(habitat.RLEnv):
         # Get last loc
         last_start_x, last_start_y = self.last_loc[0], self.last_loc[1]
         r, c = last_start_y, last_start_x
-        last_start = [int(r * 100.0/args.map_resolution - gx1),
-                      int(c * 100.0/args.map_resolution - gy1)]
+        last_start = [int(c * 100.0/args.map_resolution - gx1),
+                      int(r * 100.0/args.map_resolution - gy1)]
         last_start = pu.threshold_poses(last_start, grid.shape)
 
         # Get curr loc
-        self.curr_loc = [start_x, start_y, start_o]
         r, c = start_y, start_x
-        start = [int(r * 100.0/args.map_resolution - gx1),
-                 int(c * 100.0/args.map_resolution - gy1)]
+        start = [int(c * 100.0/args.map_resolution - gx1),
+                 int(r * 100.0/args.map_resolution - gy1)]
         start = pu.threshold_poses(start, grid.shape)
         #TODO: try reducing this
 
-        self.visited[gx1:gx2, gy1:gy2][start[0]-2:start[0]+3,
-                                       start[1]-2:start[1]+3] = 1
+        self.visited[gy1:gy2, gx1:gx2][start[1]-2:start[1]+3,
+                                       start[0]-2:start[0]+3] = 1
 
         steps = 25
         for i in range(steps):
             x = int(last_start[0] + (start[0] - last_start[0]) * (i+1) / steps)
             y = int(last_start[1] + (start[1] - last_start[1]) * (i+1) / steps)
-            self.visited_vis[gx1:gx2, gy1:gy2][x, y] = 1
+            self.visited_vis[gy1:gy2, gx1:gx2][y, x] = 1
 
         # Get last loc ground truth pose
         last_start_x, last_start_y = self.last_loc_gt[0], self.last_loc_gt[1]
         r, c = last_start_y, last_start_x
-        last_start = [int(r * 100.0/args.map_resolution),
-                      int(c * 100.0/args.map_resolution)]
+        last_start = [int(c * 100.0/args.map_resolution),
+                      int(r * 100.0/args.map_resolution)]
         last_start = pu.threshold_poses(last_start, self.visited_gt.shape)
 
         # Get ground truth pose
         start_x_gt, start_y_gt, start_o_gt = self.curr_loc_gt
         r, c = start_y_gt, start_x_gt
-        start_gt = [int(r * 100.0/args.map_resolution),
-                    int(c * 100.0/args.map_resolution)]
+        start_gt = [int(c * 100.0/args.map_resolution),
+                    int(r * 100.0/args.map_resolution)]
         start_gt = pu.threshold_poses(start_gt, self.visited_gt.shape)
         #self.visited_gt[start_gt[0], start_gt[1]] = 1
 
@@ -657,7 +667,7 @@ class Exploration_Env(habitat.RLEnv):
         for i in range(steps):
             x = int(last_start[0] + (start_gt[0] - last_start[0]) * (i+1) / steps)
             y = int(last_start[1] + (start_gt[1] - last_start[1]) * (i+1) / steps)
-            self.visited_gt[x, y] = 1
+            self.visited_gt[y,x] = 1
 
 
         # Get goal
@@ -725,88 +735,150 @@ class Exploration_Env(habitat.RLEnv):
 
         self.relative_angle = relative_angle
 
-        if args.visualize or args.print_images:
-            dump_dir = "{}/dump/{}/".format(args.dump_location,
-                                                args.exp_name)
-            ep_dir = '{}/thread_{}/ep_{}/'.format(
-                            dump_dir, self.rank+1, self.episode_no)
-            if not os.path.exists(ep_dir):
-                os.makedirs(ep_dir)
+        # if args.visualize or args.print_images:
+        #     dump_dir = "{}/dump/{}/".format(args.dump_location,
+        #                                         args.exp_name)
+        #     ep_dir = '{}/thread_{}/ep_{}/'.format(
+        #                     dump_dir, self.rank+1, self.episode_no)
+        #     if not os.path.exists(ep_dir):
+        #         os.makedirs(ep_dir)
 
-            if args.vis_type == 1: # Visualize predicted map and pose
-                vis_grid = vu.get_colored_map(np.rint(map_pred),
-                                self.collison_map[gx1:gx2, gy1:gy2],
-                                self.visited_vis[gx1:gx2, gy1:gy2],
-                                self.visited_gt[gx1:gx2, gy1:gy2],
-                                goal,
-                                stg,
-                                self.explored_map[gx1:gx2, gy1:gy2],
-                                self.explorable_map[gx1:gx2, gy1:gy2],
-                                self.map[gx1:gx2, gy1:gy2] *\
-                                    self.explored_map[gx1:gx2, gy1:gy2])
-                vis_grid = np.flipud(vis_grid)
-                vu.visualize(self.figure, self.ax, self.obs, vis_grid[:,:,::-1],
-                            (start_x - gy1*args.map_resolution/100.0,
-                             start_y - gx1*args.map_resolution/100.0,
-                             start_o),
-                            (start_x_gt - gy1*args.map_resolution/100.0,
-                             start_y_gt - gx1*args.map_resolution/100.0,
-                             start_o_gt),
-                            dump_dir, self.rank, self.episode_no,
-                            self.timestep, args.visualize,
-                            args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
+        #     if args.vis_type == 1: # Visualize predicted map and pose
+        #         vis_grid = vu.get_colored_map(np.rint(map_pred),
+        #                         self.collison_map[gx1:gx2, gy1:gy2],
+        #                         self.visited_vis[gx1:gx2, gy1:gy2],
+        #                         self.visited_gt[gx1:gx2, gy1:gy2],
+        #                         goal,
+        #                         stg,
+        #                         self.explored_map[gx1:gx2, gy1:gy2],
+        #                         self.explorable_map[gx1:gx2, gy1:gy2],
+        #                         self.map[gx1:gx2, gy1:gy2] *\
+        #                             self.explored_map[gx1:gx2, gy1:gy2])
+        #         vis_grid = np.flipud(vis_grid)
+        #         vu.visualize(self.figure, self.ax, self.obs, vis_grid[:,:,::-1],
+        #                     (start_x - gy1*args.map_resolution/100.0,
+        #                      start_y - gx1*args.map_resolution/100.0,
+        #                      start_o),
+        #                     (start_x_gt - gy1*args.map_resolution/100.0,
+        #                      start_y_gt - gx1*args.map_resolution/100.0,
+        #                      start_o_gt),
+        #                     dump_dir, self.rank, self.episode_no,
+        #                     self.timestep, args.visualize,
+        #                     args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
 
-            elif args.vis_type == 2: # Visualize ground-truth map and pose
-                vis_grid = vu.get_colored_map(self.map,
-                                self.collison_map,
-                                self.visited_gt,
-                                self.visited_gt,
-                                (goal[0]+gx1, goal[1]+gy1),
-                                stg,
-                                self.explored_map,
-                                self.explorable_map,
-                                self.map*self.explored_map)
-                vis_grid = np.flipud(vis_grid)
-                vu.visualize(self.figure, self.ax, self.obs, vis_grid[:,:,::-1],
-                            (start_x_gt, start_y_gt, start_o_gt),
-                            (start_x_gt, start_y_gt, start_o_gt),
-                            dump_dir, self.rank, self.episode_no,
-                            self.timestep, args.visualize,
-                            args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
+        #     elif args.vis_type == 2: # Visualize ground-truth map and pose
+        #         vis_grid = vu.get_colored_map(self.map,
+        #                         self.collison_map,
+        #                         self.visited_gt,
+        #                         self.visited_gt,
+        #                         (goal[0]+gx1, goal[1]+gy1),
+        #                         stg,
+        #                         self.explored_map,
+        #                         self.explorable_map,
+        #                         self.map*self.explored_map)
+        #         vis_grid = np.flipud(vis_grid)
+        #         vu.visualize(self.figure, self.ax, self.obs, vis_grid[:,:,::-1],
+        #                     (start_x_gt, start_y_gt, start_o_gt),
+        #                     (start_x_gt, start_y_gt, start_o_gt),
+        #                     dump_dir, self.rank, self.episode_no,
+        #                     self.timestep, args.visualize,
+        #                     args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
 
-            else: # Visualize BOTH predicted and ground-truth map and pose
-                vis_grid_pred = vu.get_colored_map(np.rint(map_pred),
-                                self.collison_map[gx1:gx2, gy1:gy2],
-                                self.visited_vis[gx1:gx2, gy1:gy2],
-                                self.visited_gt[gx1:gx2, gy1:gy2],
-                                goal,
-                                stg,
-                                self.explored_map[gx1:gx2, gy1:gy2],
-                                self.explorable_map[gx1:gx2, gy1:gy2],
-                                self.map[gx1:gx2, gy1:gy2] *\
-                                    self.explored_map[gx1:gx2, gy1:gy2])
-                vis_grid_pred = np.flipud(vis_grid_pred)
+        #     else: # Visualize BOTH predicted and ground-truth map and pose
+        #         vis_grid_pred = vu.get_colored_map(np.rint(map_pred),
+        #                         self.collison_map[gx1:gx2, gy1:gy2],
+        #                         self.visited_vis[gx1:gx2, gy1:gy2],
+        #                         self.visited_gt[gx1:gx2, gy1:gy2],
+        #                         goal,
+        #                         stg,
+        #                         self.explored_map[gx1:gx2, gy1:gy2],
+        #                         self.explorable_map[gx1:gx2, gy1:gy2],
+        #                         self.map[gx1:gx2, gy1:gy2] *\
+        #                             self.explored_map[gx1:gx2, gy1:gy2])
+        #         vis_grid_pred = np.flipud(vis_grid_pred)
                 
-                vis_grid_gt = vu.get_colored_map(self.map,
-                                self.collison_map,
-                                self.visited_gt,
-                                self.visited_gt,
-                                (goal[0]+gx1, goal[1]+gy1),
-                                stg,
-                                self.explored_map,
-                                self.explorable_map,
-                                self.map*self.explored_map)
-                vis_grid_gt = np.flipud(vis_grid_gt)
-                vu.visualize_both(self.figure, self.ax, self.obs, vis_grid_pred[:,:,::-1], vis_grid_gt[:,:,::-1],
-                                  (gx1*args.map_resolution/100.0,
-                                  gy1*args.map_resolution/100.0),
-                                  (start_x_gt, start_y_gt, start_o_gt),
-                                  (start_x_gt, start_y_gt, start_o_gt),
-                                  dump_dir, self.rank, self.episode_no,
-                                  self.timestep, args.visualize,
-                                  args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
+        #         vis_grid_gt = vu.get_colored_map(self.map,
+        #                         self.collison_map,
+        #                         self.visited_gt,
+        #                         self.visited_gt,
+        #                         (goal[0]+gx1, goal[1]+gy1),
+        #                         stg,
+        #                         self.explored_map,
+        #                         self.explorable_map,
+        #                         self.map*self.explored_map)
+        #         vis_grid_gt = np.flipud(vis_grid_gt)
+        #         vu.visualize_both(self.figure, self.ax, self.obs, vis_grid_pred[:,:,::-1], vis_grid_gt[:,:,::-1],
+        #                           (gx1*args.map_resolution/100.0,
+        #                           gy1*args.map_resolution/100.0),
+        #                           (start_x_gt, start_y_gt, start_o_gt),
+        #                           (start_x_gt, start_y_gt, start_o_gt),
+        #                           dump_dir, self.rank, self.episode_no,
+        #                           self.timestep, args.visualize,
+        #                           args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
 
         return output
+
+    def visualize_map(self, inputs):
+        args = self.args
+        dump_dir = "{}/dump/{}/".format(args.dump_location,
+                                            args.exp_name)
+        ep_dir = '{}/thread_{}/ep_{}/'.format(
+                        dump_dir, self.rank+1, self.episode_no)
+        if not os.path.exists(ep_dir):
+            os.makedirs(ep_dir)
+
+        map_pred = inputs['map_pred']
+        start_x, start_y, start_o, gx1, gx2, gy1, gy2 = inputs['pose_pred']
+        gx1, gx2, gy1, gy2 = int(gx1), int(gx2), int(gy1), int(gy2)
+        grid = np.rint(map_pred)
+        goal = inputs['goal']
+        goal = pu.threshold_poses(goal, grid.shape)
+        stg = goal # TODO: visualization for local short-term goal?
+        start_x_gt, start_y_gt, start_o_gt = self.curr_loc_gt
+
+        if args.vis_type == 1: # Visualize predicted map and pose
+            vis_grid = vu.get_colored_map(np.rint(map_pred),
+                            self.collison_map[gy1:gy2, gx1:gx2],
+                            self.visited_vis[gy1:gy2, gx1:gx2],
+                            self.visited_gt[gy1:gy2, gx1:gx2],
+                            goal,
+                            stg,
+                            self.explored_map[gy1:gy2, gx1:gx2],
+                            self.explorable_map[gy1:gy2, gx1:gx2],
+                            self.map[gy1:gy2, gx1:gx2] *\
+                                self.explored_map[gy1:gy2, gx1:gx2])
+            #vis_grid = np.flipud(vis_grid)
+            vu.visualize(self.figure, self.ax, 
+                         self.obs, vis_grid[:,:,::-1], self.uncert_map,
+                        (start_x - gx1*args.map_resolution/100.0,
+                         start_y - gy1*args.map_resolution/100.0,
+                         start_o),
+                        (start_x_gt - gx1*args.map_resolution/100.0,
+                         start_y_gt - gy1*args.map_resolution/100.0,
+                         start_o_gt),
+                        dump_dir, self.rank, self.episode_no,
+                        self.timestep, args.visualize,
+                        args.print_images, self._previous_action, self.accumulated_ratio)
+
+        else: # Visualize ground-truth map and pose
+            vis_grid = vu.get_colored_map(self.map,
+                            self.collison_map,
+                            self.visited_gt,
+                            self.visited_gt,
+                            (goal[0]+gx1, goal[1]+gy1),
+                            stg,
+                            self.explored_map,
+                            self.explorable_map,
+                            self.map*self.explored_map)
+            #vis_grid = np.flipud(vis_grid)
+            vu.visualize(self.figure, self.ax, 
+                         self.obs, vis_grid[:,:,::-1], self.uncert_map,
+                        (start_x_gt, start_y_gt, start_o_gt),
+                        (start_x_gt, start_y_gt, start_o_gt),
+                        dump_dir, self.rank, self.episode_no,
+                        self.timestep, args.visualize,
+                        args.print_images, self._previous_action, self.accumulated_ratio)
+
 
     def _get_gt_map(self, full_map_size):
         #self.scene_name = self.habitat_env.sim.config.scene
@@ -909,15 +981,15 @@ class Exploration_Env(habitat.RLEnv):
         y2 = min(grid.shape[1]-1, int(y2 + buf))
 
         # bounding box of explored area 
-        rows = explored.sum(1)
+        rows = explored.sum(0)
         rows[rows>0] = 1
-        ex1 = np.argmax(rows)
-        ex2 = len(rows) - np.argmax(np.flip(rows))
+        ey1 = np.argmax(rows)
+        ey2 = len(rows) - np.argmax(np.flip(rows))
 
-        cols = explored.sum(0)
+        cols = explored.sum(1)
         cols[cols>0] = 1
-        ey1 = np.argmax(cols)
-        ey2 = len(cols) - np.argmax(np.flip(cols))
+        ex1 = np.argmax(cols)
+        ex2 = len(cols) - np.argmax(np.flip(cols))
 
         ex1 = min(int(start[0]) - 2, ex1)
         ex2 = max(int(start[0]) + 2, ex2)
@@ -931,18 +1003,18 @@ class Exploration_Env(habitat.RLEnv):
         y2 = min(y2, ey2)
 
         traversible = skimage.morphology.binary_dilation(
-                        grid[x1:x2, y1:y2],
+                        grid[y1:y2, x1:x2],
                         self.selem) != True # enlarge obstacle through dilation
-        traversible[self.collison_map[gx1:gx2, gy1:gy2][x1:x2, y1:y2] == 1] = 0
-        traversible[self.visited[gx1:gx2, gy1:gy2][x1:x2, y1:y2] == 1] = 1
+        traversible[self.collison_map[gy1:gy2, gx1:gx2][y1:y2, x1:x2] == 1] = 0
+        traversible[self.visited[gy1:gy2, gx1:gx2][y1:y2, x1:x2] == 1] = 1
 
-        traversible[int(start[0]-x1)-1:int(start[0]-x1)+2,
-                    int(start[1]-y1)-1:int(start[1]-y1)+2] = 1
+        traversible[int(start[1]-y1)-1:int(start[1]-y1)+2,
+                    int(start[0]-x1)-1:int(start[0]-x1)+2] = 1
 
         if goal[0]-2 > x1 and goal[0]+3 < x2\
             and goal[1]-2 > y1 and goal[1]+3 < y2:
-            traversible[int(goal[0]-x1)-2:int(goal[0]-x1)+3,
-                    int(goal[1]-y1)-2:int(goal[1]-y1)+3] = 1 # set area around goal to be traversible
+            traversible[int(goal[1]-y1)-2:int(goal[1]-y1)+3,
+                    int(goal[0]-x1)-2:int(goal[0]-x1)+3] = 1 # set area around goal to be traversible
         else:
             goal[0] = min(max(x1, goal[0]), x2)
             goal[1] = min(max(y1, goal[1]), y2) # goal out of bound
@@ -957,7 +1029,7 @@ class Exploration_Env(habitat.RLEnv):
 
         planner = FMMPlanner(traversible, 360//self.dt)
 
-        reachable = planner.set_goal([goal[1]-y1+1, goal[0]-x1+1]) # goal w.r.t (x1,y1)
+        reachable = planner.set_goal([goal[0]-x1+1, goal[1]-y1+1]) # goal w.r.t (x1,y1)
 
         stg_x, stg_y = start[0] - x1 + 1, start[1] - y1 + 1
         for i in range(self.args.short_goal_dist):
@@ -989,17 +1061,17 @@ class Exploration_Env(habitat.RLEnv):
         goal_r = 0
         while not path_found:
             traversible = skimage.morphology.binary_dilation(
-                            grid[gx1:gx2, gy1:gy2][x1:x2, y1:y2],
+                            grid[gy1:gy2, gx1:gx2][y1:y2, x1:x2],
                             self.selem) != True
-            traversible[self.visited[gx1:gx2, gy1:gy2][x1:x2, y1:y2] == 1] = 1
-            traversible[int(start[0]-x1)-1:int(start[0]-x1)+2,
-                        int(start[1]-y1)-1:int(start[1]-y1)+2] = 1
-            traversible[int(goal[0]-x1)-goal_r:int(goal[0]-x1)+goal_r+1,
-                        int(goal[1]-y1)-goal_r:int(goal[1]-y1)+goal_r+1] = 1
+            traversible[self.visited[gy1:gy2, gx1:gx2][y1:y2, x1:x2] == 1] = 1
+            traversible[int(start[1]-y1)-1:int(start[1]-y1)+2,
+                        int(start[0]-x1)-1:int(start[0]-x1)+2] = 1
+            traversible[int(goal[1]-y1)-goal_r:int(goal[1]-y1)+goal_r+1,
+                        int(goal[0]-x1)-goal_r:int(goal[0]-x1)+goal_r+1] = 1
             scale = 1
             planner = FMMPlanner(traversible, 360//self.dt, scale)
 
-            reachable = planner.set_goal([goal[1]-y1, goal[0]-x1])
+            reachable = planner.set_goal([goal[0]-x1, goal[1]-y1])
 
             stg_x_gt, stg_y_gt = start[0] - x1, start[1] - y1
             for i in range(1):

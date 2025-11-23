@@ -36,9 +36,10 @@
             //"args": "${command:pickArgs}", // take input arguments 
             "args": [
                 "--config",
-                "configs/train_lena.txt",
+                "configs/eval_NSLAM.txt",
             ],
-            "stopOnEntry": true // automatically stop the debugger on the first line
+            "stopOnEntry": true, // automatically stop the debugger on the first line,
+            "justMyCode": true
         }
     ]
 }

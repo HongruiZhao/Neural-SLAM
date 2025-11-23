@@ -15,8 +15,9 @@ from arguments import get_args
 from env import make_vec_envs
 from utils.storage import GlobalRolloutStorage, FIFOMemory
 from utils.optimization import get_optimizer
-from model import RL_Policy, Local_IL_Policy, Neural_SLAM_Module
-
+from model import RL_Policy, Local_IL_Policy, Neural_SLAM_Module, DdppoPolicy
+from utils.utils_for_main import get_local_map_boundaries, init_map_and_pose, \
+                                 get_map_from_envs, run_local_planner, visualize_map
 import algo
 
 import sys
@@ -39,29 +40,6 @@ torch.manual_seed(args.seed)
 
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
-
-
-def get_local_map_boundaries(agent_loc, local_sizes, full_sizes):
-    loc_r, loc_c = agent_loc
-    local_w, local_h = local_sizes
-    full_w, full_h = full_sizes
-
-    if args.global_downscaling > 1:
-        gx1, gy1 = loc_r - local_w // 2, loc_c - local_h // 2
-        gx2, gy2 = gx1 + local_w, gy1 + local_h
-        if gx1 < 0:
-            gx1, gx2 = 0, local_w
-        if gx2 > full_w:
-            gx1, gx2 = full_w - local_w, full_w
-
-        if gy1 < 0:
-            gy1, gy2 = 0, local_h
-        if gy2 > full_h:
-            gy1, gy2 = full_h - local_h, full_h
-    else:
-        gx1.gx2, gy1, gy2 = 0, full_w, 0, full_h
-
-    return [gx1, gx2, gy1, gy2]
 
 
 def main():
@@ -174,34 +152,11 @@ def main():
     ### 4-7 store local map boundaries
     planner_pose_inputs = np.zeros((num_scenes, 7))
 
-    def init_map_and_pose():
-        full_map.fill_(0.)
-        full_pose.fill_(0.)
-        full_pose[:, :2] = args.map_size_cm / 100.0 / 2.0
-
-        locs = full_pose.cpu().numpy()
-        planner_pose_inputs[:, :3] = locs
-        for e in range(num_scenes):
-            r, c = locs[e, 1], locs[e, 0]
-            loc_r, loc_c = [int(r * 100.0 / args.map_resolution),
-                            int(c * 100.0 / args.map_resolution)]
-
-            full_map[e, 2:, loc_r - 1:loc_r + 2, loc_c - 1:loc_c + 2] = 1.0
-
-            lmb[e] = get_local_map_boundaries((loc_r, loc_c),
-                                              (local_w, local_h),
-                                              (full_w, full_h))
-
-            planner_pose_inputs[e, 3:] = lmb[e]
-            origins[e] = [lmb[e][2] * args.map_resolution / 100.0,
-                          lmb[e][0] * args.map_resolution / 100.0, 0.]
-
-        for e in range(num_scenes):
-            local_map[e] = full_map[e, :, lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]]
-            local_pose[e] = full_pose[e] - \
-                            torch.from_numpy(origins[e]).to(device).float()
-
-    init_map_and_pose()
+    full_map, full_pose, local_map, local_pose, planner_pose_inputs, lmb \
+        = init_map_and_pose(    full_map, full_pose, local_map, local_pose, planner_pose_inputs, origins, lmb,
+                                local_w, local_h, full_w, full_h, 
+                                args.map_size_cm, args.map_resolution, args.global_downscaling,
+                                num_scenes, device)
 
     g_observation_space = gym.spaces.Box(0, 1,
                                             (8,
@@ -252,12 +207,17 @@ def main():
                        max_grad_norm=args.max_grad_norm)
 
     # Local policy
-    l_policy = Local_IL_Policy(l_observation_space.shape, 3,
-                               recurrent=args.use_recurrent_local,
-                               hidden_size=l_hidden_size,
-                               deterministic=args.use_deterministic_local).to(device)
-    local_optimizer = get_optimizer(l_policy.parameters(),
-                                    args.local_optimizer)
+    if args.use_DD_PPO == 'none':
+        l_policy = Local_IL_Policy(l_observation_space.shape, 3,
+                                recurrent=args.use_recurrent_local,
+                                hidden_size=l_hidden_size,
+                                deterministic=args.use_deterministic_local).to(device)
+        local_optimizer = get_optimizer(l_policy.parameters(),
+                                        args.local_optimizer)
+    else:
+        print(f'load DD-PPO policy from {args.use_DD_PPO}')
+        l_policy = DdppoPolicy(path=args.use_DD_PPO, 
+                               num_scenes=num_scenes).to(device)
 
     # Storage
     g_rollouts = GlobalRolloutStorage(args.num_global_steps,
@@ -286,13 +246,13 @@ def main():
     if not args.train_global:
         g_policy.eval()
 
-    if args.load_local != "0":
+    if args.load_local != "0" and args.use_DD_PPO == 'none':
         print("Loading local {}".format(args.load_local))
         state_dict = torch.load(args.load_local,
                                 map_location=lambda storage, loc: storage)
         l_policy.load_state_dict(state_dict)
 
-    if not args.train_local:
+    if not args.train_local and args.use_DD_PPO == 'none':
         l_policy.eval()
 
     # Predict map from frame 1:
@@ -305,7 +265,6 @@ def main():
         _, _, local_map[:, 0, :, :], local_map[:, 1, :, :], _, local_pose = \
             nslam_module(obs, obs, poses, local_map[:, 0, :, :],
                         local_map[:, 1, :, :], local_pose)
-    
         if args.debug:
             gt_map = infos[0]['map'][lmb[0, 0]:lmb[0, 1], lmb[0, 2]:lmb[0, 3]]
             plt.figure()
@@ -319,21 +278,8 @@ def main():
             print(f'nslam pose = {local_pose}')
             print(f"gt pose = { infos[0]['sensor_pose'] }")
     else:
-        all_maps = np.stack([infos[e]['map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
-        all_explored_maps = np.stack([infos[e]['explored_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
-        torch_maps = torch.from_numpy(all_maps).to(device)
-        torch_explored_maps = torch.from_numpy(all_explored_maps).to(device)
-        local_map[:, 0, :, :] = torch_maps
-        if args.global_arch == 'lena':
-            all_uncert_maps = np.stack([infos[e]['uncert_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
-            torch_uncert_maps = torch.from_numpy(all_uncert_maps).to(device)
-            local_map[:, 1, :, :] = torch_uncert_maps
-        else:  
-            local_map[:, 1, :, :] = torch_explored_maps
-        local_pose = torch.from_numpy(np.asarray(
-            [infos[env_idx]['gt_pose'] for env_idx
-            in range(num_scenes)])).float().to(device) - \
-            torch.from_numpy(origins).to(device).float()
+        local_map, local_pose = get_map_from_envs(infos, local_map, local_pose, lmb, origins,
+                                                  num_scenes, args.global_arch, device)
 
     # Compute Global policy input
     locs = local_pose.cpu().numpy()
@@ -350,7 +296,6 @@ def main():
     global_input[:, 0:4, :, :] = local_map.detach()
     global_input[:, 4:, :, :] = nn.MaxPool2d(args.global_downscaling)(full_map)
 
-
     g_rollouts.obs[0].copy_(global_input)
     g_rollouts.extras[0].copy_(global_orientation)
 
@@ -365,19 +310,9 @@ def main():
         )
 
     cpu_actions = nn.Sigmoid()(g_action).cpu().numpy()
-    global_goals = [[int(action[0] * local_w), int(action[1] * local_h)]
-                    for action in cpu_actions] # a list of xy coordinates 
-
-    # Compute planner inputs
-    planner_inputs = [{} for e in range(num_scenes)]
-    for e, p_input in enumerate(planner_inputs):
-        p_input['goal'] = global_goals[e]
-        p_input['map_pred'] = global_input[e, 0, :, :].detach().cpu().numpy()
-        p_input['exp_pred'] = global_input[e, 1, :, :].detach().cpu().numpy()
-        p_input['pose_pred'] = planner_pose_inputs[e]
-
-    # Output stores local goals as well as the the ground-truth action
-    output = envs.get_short_term_goal(planner_inputs)
+    global_goals = [[int(action[0] * local_w/2), int(action[1] * local_h/2)]
+                    for action in cpu_actions] # a list of xy coordinates # TODO
+        
 
     last_obs = obs.detach()
     local_rec_states = torch.zeros(num_scenes, l_hidden_size).to(device)
@@ -388,7 +323,8 @@ def main():
     torch.set_grad_enabled(False)
 
     for ep_num in trange(num_episodes):
-
+        if args.use_DD_PPO != 'none':
+            l_policy.reset()
         for step in trange(args.max_episode_length):
             total_num_steps += 1
 
@@ -396,30 +332,58 @@ def main():
             l_step = step % args.num_local_steps
 
             # ------------------------------------------------------------------
-            # Local Policy
-            del last_obs
-            last_obs = obs.detach()
-            local_masks = l_masks
-            local_goals = output[:, :-1].to(device).long()
+            # Local Planner and Policy
 
+            # use ground truth local planner
             if args.use_ffm_planner == 0:
                 if args.train_local:
                     torch.set_grad_enabled(True)
+            
+                # train local planner 
+                if args.use_DD_PPO == 'none':
+                    output = run_local_planner(num_scenes, 
+                            global_goals, global_input, planner_pose_inputs,
+                            envs)
 
-                action, action_prob, local_rec_states = l_policy(
-                    obs,
-                    local_rec_states,
-                    local_masks,
-                    extras=local_goals,
-                )
+                    del last_obs
+                    last_obs = obs.detach()
+                    local_masks = l_masks
+                    local_goals = output[:, :-1].to(device).long()
 
-                if args.train_local:
-                    action_target = output[:, -1].long().to(device)
-                    policy_loss += nn.CrossEntropyLoss()(action_prob, action_target)
-                    torch.set_grad_enabled(False)
-                l_action = action.cpu()
+                    if args.train_local:
+                        torch.set_grad_enabled(True)
+
+                    action, action_prob, local_rec_states = l_policy(
+                        obs,
+                        local_rec_states,
+                        local_masks,
+                        extras=local_goals,
+                    )
+                    if args.train_local:
+                        action_target = output[:, -1].long().to(device)
+                        policy_loss += nn.CrossEntropyLoss()(action_prob, action_target)
+                        torch.set_grad_enabled(False)
+                    l_action = action.cpu()
+                    l_action += 1
+
+                # train with DDPPO local policy
+                else:
+                    assert type(l_policy) == DdppoPolicy
+                    l_action = l_policy.plan(np.stack([infos[e]['depth'] for e in range(num_scenes)]) , 
+                                            global_goals, planner_pose_inputs, 
+                                            l_masks, step, 
+                                            args.map_resolution, device)
+                    
+            # use ground truth local planner from NSLAM codebase
             else:
-                l_action = output[:,2].cpu().long()
+                l_action = output[:,2].cpu().long()    
+            
+            # for visualization
+            if args.print_images:
+                visualize_map(  num_scenes, 
+                                global_goals, global_input, planner_pose_inputs,
+                                envs)
+
             # ------------------------------------------------------------------
 
             # ------------------------------------------------------------------
@@ -434,7 +398,11 @@ def main():
             # ------------------------------------------------------------------
             # Reinitialize variables when episode ends
             if step == args.max_episode_length - 1:  # Last episode step
-                init_map_and_pose()
+                full_map, full_pose, local_map, local_pose, planner_pose_inputs, lmb \
+                    = init_map_and_pose(    full_map, full_pose, local_map, local_pose, planner_pose_inputs, origins, lmb,
+                                            local_w, local_h, full_w, full_h, 
+                                            args.map_size_cm, args.map_resolution, args.global_downscaling,
+                                            num_scenes, device)
                 del last_obs
                 last_obs = obs.detach()
             # ------------------------------------------------------------------
@@ -470,27 +438,11 @@ def main():
                                 local_map[:, 1, :, :], local_pose, build_maps=True)
                 
             else:
-                all_maps = np.stack([infos[e]['map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)]) # [0]: info returns a tuple (map,) for some reasons
-                all_explored_maps = np.stack([infos[e]['explored_map'][0][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
-                torch_maps = torch.from_numpy(all_maps).to(device)
-                torch_explored_maps = torch.from_numpy(all_explored_maps).to(device)
-                local_map[:, 0, :, :] = torch_maps
-                if args.global_arch == 'lena':
-                    all_uncert_maps = np.stack([infos[e]['uncert_map'][lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] for e in range(num_scenes)])
-                    torch_uncert_maps = torch.from_numpy(all_uncert_maps).to(device)
-                    local_map[:, 1, :, :] = torch_uncert_maps
-                else:  
-                    local_map[:, 1, :, :] = torch_explored_maps
-                local_pose = torch.from_numpy(np.asarray(
-                    [infos[env_idx]['gt_pose'] for env_idx
-                    in range(num_scenes)])).float().to(device) - \
-                    torch.from_numpy(origins).to(device).float()
-                # convert angle to be between -180 and 180
-                local_pose[:,2] = local_pose[:,2] % 360
-                local_pose[:,2] = local_pose[:,2] - 360*(local_pose[:,2] > 180)
+                local_map, local_pose = get_map_from_envs(infos, local_map, local_pose, lmb, origins,
+                                                  num_scenes, args.global_arch, device)
             
             locs = local_pose.cpu().numpy()
-            planner_pose_inputs[:, :3] = locs + origins
+            planner_pose_inputs[:, :3] = locs + origins # Neural SLAM estimates locs w.r.t local window 
             local_map[:, 2, :, :].fill_(0.)  # Resetting current location channel
 
             for e in range(num_scenes):
@@ -505,8 +457,8 @@ def main():
             if l_step == args.num_local_steps - 1:
                 # For every global step, update the full and local maps
                 for e in range(num_scenes):
-                    full_map[e, :, lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]] = \
-                        local_map[e]
+                    full_map[e, :, lmb[e, 2]:lmb[e, 3], lmb[e, 0]:lmb[e, 1]] = \
+                        local_map[e] # update full map
                     full_pose[e] = local_pose[e] + \
                                    torch.from_numpy(origins[e]).to(device).float()
 
@@ -517,14 +469,15 @@ def main():
 
                     lmb[e] = get_local_map_boundaries((loc_r, loc_c),
                                                       (local_w, local_h),
-                                                      (full_w, full_h))
+                                                      (full_w, full_h),
+                                                      args.global_downscaling) # get new lmb
 
                     planner_pose_inputs[e, 3:] = lmb[e]
-                    origins[e] = [lmb[e][2] * args.map_resolution / 100.0,
-                                  lmb[e][0] * args.map_resolution / 100.0, 0.]
+                    origins[e] = [lmb[e][0] * args.map_resolution / 100.0,
+                                  lmb[e][2] * args.map_resolution / 100.0, 0.]
 
                     local_map[e] = full_map[e, :,
-                                   lmb[e, 0]:lmb[e, 1], lmb[e, 2]:lmb[e, 3]]
+                                   lmb[e, 2]:lmb[e, 3], lmb[e, 0]:lmb[e, 1]] # local map with new boundaires
                     local_pose[e] = full_pose[e] - \
                                     torch.from_numpy(origins[e]).to(device).float()
 
@@ -580,22 +533,10 @@ def main():
                 cpu_actions = nn.Sigmoid()(g_action).cpu().numpy()
                 global_goals = [[int(action[0] * local_w),
                                  int(action[1] * local_h)]
-                                for action in cpu_actions]
+                                for action in cpu_actions] 
 
                 g_reward = 0
                 g_masks = torch.ones(num_scenes).float().to(device)
-            # ------------------------------------------------------------------
-
-            # ------------------------------------------------------------------
-            # Get short term goal
-            planner_inputs = [{} for e in range(num_scenes)]
-            for e, p_input in enumerate(planner_inputs):
-                p_input['map_pred'] = local_map[e, 0, :, :].cpu().numpy()
-                p_input['exp_pred'] = local_map[e, 1, :, :].cpu().numpy()
-                p_input['pose_pred'] = planner_pose_inputs[e]
-                p_input['goal'] = global_goals[e]
-
-            output = envs.get_short_term_goal(planner_inputs)
             # ------------------------------------------------------------------
 
             ### TRAINING

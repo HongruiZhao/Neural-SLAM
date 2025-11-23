@@ -1,9 +1,0 @@
-    {
-            "name": "Python: Debug Console",
-            "type": "python",
-            "request": "launch",
-            "program": "${file}",
-            "cwd":"${workspaceFolder}/starTrackerSimulator_ver_3/src",
-            "console": "internalConsole",
-            "stopOnEntry": true
-        }
