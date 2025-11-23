@@ -99,6 +99,104 @@ def visualize(fig, ax, img, grid, pos, gt_pos, dump_dir, rank, ep_no, t,
             dump_dir, rank+1, ep_no, t)
         plt.savefig(fn)
 
+def visualize_both(fig, ax, img, grid, grid2, gt_offset, pos, gt_pos, dump_dir, rank, ep_no, t,
+              visualize, print_images, vis_style, previous_action, accumulated_ratio):
+    """
+        @param rank: Thread No.
+        @param ep_no: current episode
+        @param t: time step
+        @param accumulated_ratio: percentage of map exlored
+        @param gt_offset: offset to align predicted and GT map
+        @param grid2: GT map
+    """
+    for i in range(2):
+        ax[i].clear()
+        ax[i].set_yticks([])
+        ax[i].set_xticks([])
+        ax[i].set_yticklabels([])
+        ax[i].set_xticklabels([])
+
+    ax[0].imshow(img)
+    ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
+
+    title = f"Step={t}, Exp_ratio={accumulated_ratio:.2f}"
+
+    ax[1].imshow(grid)
+    ax[1].set_title(title, fontsize=15)
+
+    ax[2].imshow(grid2)
+    ax[2].set_title("Ground-truth map", fontsize=15)
+
+    legend_elements = [
+        mpatches.Patch(color=color_palette[i], label=desc[i]) \
+        for i in range(len(color_palette))
+    ]
+
+    # Draw GT agent pose
+    agent_size = 8
+    x, y, o = gt_pos
+    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
+
+    dx = 0
+    dy = 0
+    fc = 'Grey'
+    dx = np.cos(np.deg2rad(o))
+    dy = -np.sin(np.deg2rad(o))
+    ax[1].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * (agent_size * 1.25),
+                head_width=agent_size, head_length=agent_size * 1.25,
+                length_includes_head=True, fc=fc, ec=fc, alpha=0.9)
+
+    # Draw predicted agent pose
+    x, y, o = pos
+    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
+
+    dx = 0
+    dy = 0
+    fc = 'Red'
+    dx = np.cos(np.deg2rad(o))
+    dy = -np.sin(np.deg2rad(o))
+    ax[1].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * agent_size * 1.25,
+                head_width=agent_size, head_length=agent_size * 1.25,
+                length_includes_head=True, fc=fc, ec=fc, alpha=0.6)
+    
+    ax[1].legend(handles=legend_elements, bbox_to_anchor=(1.05, 1),
+                 loc='upper left', borderaxespad=0., fontsize=8)
+    
+    ## Do the same but for GT
+    x, y, o = gt_pos
+    x, y = x - gt_offset[0], y - gt_offset[1]
+    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
+
+    ax[2].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * (agent_size * 1.25),
+                head_width=agent_size, head_length=agent_size * 1.25,
+                length_includes_head=True, fc=fc, ec=fc, alpha=0.9)
+    
+    x, y, o = pos
+    x, y = x - gt_offset[0], y - gt_offset[1]
+    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
+    ax[2].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * agent_size * 1.25,
+                head_width=agent_size, head_length=agent_size * 1.25,
+                length_includes_head=True, fc=fc, ec=fc, alpha=0.6)
+    legend_elements = [
+        mpatches.Patch(color=color_palette[i], label=desc[i]) \
+        for i in range(len(color_palette))
+    ]
+    ax[2].legend(handles=legend_elements, bbox_to_anchor=(1.05, 1),
+                 loc='upper left', borderaxespad=0., fontsize=8)
+
+    for _ in range(5):
+        plt.tight_layout()
+
+    if visualize:
+        plt.gcf().canvas.flush_events()
+        fig.canvas.start_event_loop(0.001)
+        plt.gcf().canvas.flush_events()
+
+    if print_images:
+        fn = '{}/thread_{}/ep_{}/{:04d}.png'.format(
+            dump_dir, rank+1, ep_no, t)
+        plt.savefig(fn)
+
 
 def insert_circle(map, x, y, value):
     map[x - 2: x + 3, y - 2:y + 3] = value

@@ -9,7 +9,7 @@ num_episodes = 1
 train_global = 0
 train_local = 0
 train_slam = 0
-use_nslam = 0
+use_nslam = 1
 
 load_global = pretrained_models/model_best.global
 load_local = pretrained_models/model_best.local
@@ -17,12 +17,14 @@ load_slam = pretrained_models/model_best.slam
 
 global_arch = lena
 
-num_local_steps = 25 # default 25 
+num_local_steps = 50 # default 25 
 noisy_odometry = 0
-collision_threshold = 0.001
-obstacle_boundary = 40 # default 5
+collision_threshold = 0.005
+obstacle_boundary = 20 # default 5, obstacle map dilation
 
 print_images = 1
-vis_type = 1 # 2 show GT map, 1 show predicted map
+vis_type = 2 # 3 shows both, 2 show GT map, 1 show predicted map
 dump_location = results/
 exp_name = ffm_planner
+
+use_ffm_planner = 1

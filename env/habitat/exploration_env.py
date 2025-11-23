@@ -116,8 +116,12 @@ class Exploration_Env(habitat.RLEnv):
     def __init__(self, args, rank, config_env, config_baseline, dataset):
         if args.visualize:
             plt.ion()
-        if args.print_images or args.visualize:
+        if (args.print_images or args.visualize) and (args.vis_type == 1 or args.vis_type == 2):
             self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
+                                                facecolor="whitesmoke",
+                                                num="Thread {}".format(rank))
+        elif (args.print_images or args.visualize) and args.vis_type == 3:
+            self.figure, self.ax = plt.subplots(1,3, figsize=(6*16/9 * 3/2, 6),
                                                 facecolor="whitesmoke",
                                                 num="Thread {}".format(rank))
         self.args = args
@@ -671,7 +675,7 @@ class Exploration_Env(habitat.RLEnv):
         stg = self._get_stg(grid, explored, start, np.copy(goal), planning_window)
 
         # Find GT action
-        if self.args.use_FFM_planner:
+        if self.args.use_ffm_planner:
             gt_action = self._get_gt_action(1 - self.explorable_map, start,
                                             [int(stg[0]), int(stg[1])],
                                             planning_window, start_o)
@@ -752,7 +756,7 @@ class Exploration_Env(habitat.RLEnv):
                             self.timestep, args.visualize,
                             args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
 
-            else: # Visualize ground-truth map and pose
+            elif args.vis_type == 2: # Visualize ground-truth map and pose
                 vis_grid = vu.get_colored_map(self.map,
                                 self.collison_map,
                                 self.visited_gt,
@@ -769,6 +773,38 @@ class Exploration_Env(habitat.RLEnv):
                             dump_dir, self.rank, self.episode_no,
                             self.timestep, args.visualize,
                             args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
+
+            else: # Visualize BOTH predicted and ground-truth map and pose
+                vis_grid_pred = vu.get_colored_map(np.rint(map_pred),
+                                self.collison_map[gx1:gx2, gy1:gy2],
+                                self.visited_vis[gx1:gx2, gy1:gy2],
+                                self.visited_gt[gx1:gx2, gy1:gy2],
+                                goal,
+                                stg,
+                                self.explored_map[gx1:gx2, gy1:gy2],
+                                self.explorable_map[gx1:gx2, gy1:gy2],
+                                self.map[gx1:gx2, gy1:gy2] *\
+                                    self.explored_map[gx1:gx2, gy1:gy2])
+                vis_grid_pred = np.flipud(vis_grid_pred)
+                
+                vis_grid_gt = vu.get_colored_map(self.map,
+                                self.collison_map,
+                                self.visited_gt,
+                                self.visited_gt,
+                                (goal[0]+gx1, goal[1]+gy1),
+                                stg,
+                                self.explored_map,
+                                self.explorable_map,
+                                self.map*self.explored_map)
+                vis_grid_gt = np.flipud(vis_grid_gt)
+                vu.visualize_both(self.figure, self.ax, self.obs, vis_grid_pred[:,:,::-1], vis_grid_gt[:,:,::-1],
+                                  (gx1*args.map_resolution/100.0,
+                                  gy1*args.map_resolution/100.0),
+                                  (start_x_gt, start_y_gt, start_o_gt),
+                                  (start_x_gt, start_y_gt, start_o_gt),
+                                  dump_dir, self.rank, self.episode_no,
+                                  self.timestep, args.visualize,
+                                  args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
 
         return output
 

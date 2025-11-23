@@ -184,8 +184,8 @@ def get_args():
                         help='dim of heads of tensor transfomer')
     parser.add_argument('--memory_per_process', type=float, default=3.0,
                         help='GPU memeory (GB) for a process')
-    parser.add_argument('--output-debug-env', type=int, default=0)
-    parser.add_argument('--use-FFM-planner', type=int, default=0)
+    parser.add_argument('--output_debug_env', type=int, default=0)
+    parser.add_argument('--use_ffm_planner', type=int, default=0)
 
 
     # parse arguments

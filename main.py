@@ -402,7 +402,7 @@ def main():
             local_masks = l_masks
             local_goals = output[:, :-1].to(device).long()
 
-            if args.use_FFM_planner == 0:
+            if args.use_ffm_planner == 0:
                 if args.train_local:
                     torch.set_grad_enabled(True)
 
