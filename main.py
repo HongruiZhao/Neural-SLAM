@@ -323,7 +323,8 @@ def main():
     torch.set_grad_enabled(False)
 
     # Initialize variables for pose stability check
-    num_steps_stuck = np.zeros(num_scenes, dtype=int)  # Counter for each agent
+    num_steps_stuck_no_turns = np.zeros(num_scenes, dtype=int)  # Counter for each agent
+    num_steps_stuck_no_moves = np.zeros(num_scenes, dtype=int)  # Counter for each agent
     previous_poses = np.zeros((num_scenes, 3))  # Store previous poses
     is_stuck = np.zeros(num_scenes, dtype=bool)  # Boolean array for stability
 
@@ -339,21 +340,31 @@ def main():
             # ------------------------------------------------------------------
             # Local Planner and Policy
 
-            print("Agent poses: ", local_pose)
             # Check if local_pose has remained the same for at least n loops
+            print("Agent poses: ", local_pose)
             current_poses = local_pose.cpu().numpy()  # Convert to NumPy array for comparison
-
             for i in range(num_scenes):
-                if np.array_equal(current_poses[i], previous_poses[i]):
-                    num_steps_stuck[i] += 1
+                if is_stuck[i]:
+                    continue  # Skip already stuck agents
+                
+                # Check for no change in position (x, y)
+                if np.array_equal(current_poses[i][:2], previous_poses[i][:2]):
+                    num_steps_stuck_no_moves[i] += 1
                 else:
-                    num_steps_stuck[i] = 0  # Reset counter if poses differ
+                    num_steps_stuck_no_moves[i] = 0  # Reset counter if poses differ 
+
+                # check for no change at all (x, y, o)
+                if np.array_equal(current_poses[i], previous_poses[i]):
+                    num_steps_stuck_no_turns[i] += 1
+                else:
+                    num_steps_stuck_no_turns[i] = 0  # Reset counter if poses differ
 
                 previous_poses[i] = current_poses[i]
 
                 # Set is_stuck boolean if counter reaches 10n
-                is_stuck[i] = num_steps_stuck[i] >= args.stuck_limit
-            print("Pose stuck for each agent:", is_stuck)
+                is_stuck[i] =   num_steps_stuck_no_moves[i] >= args.stuck_limit_no_steps \
+                             or num_steps_stuck_no_turns[i] >= args.stuck_limit_no_turns
+            print("Pose stuck for each agent:", is_stuck, '\n')
 
             # use ground truth local planner
             if args.use_ffm_planner == 0:
@@ -407,11 +418,34 @@ def main():
             if args.print_images:
                 visualize_map(num_scenes, 
                               global_goals, global_input, planner_pose_inputs,
-                              envs)
+                              envs, heuristic=is_stuck)
 
             # ------------------------------------------------------------------
 
             print("Local Action: ", l_action, l_action.shape)
+            # correct local action if stuck
+            # turn to the right if stuck
+            for i in range(num_scenes):
+                if is_stuck[i]:
+                    # turn to the right until the counter is > limit + heuristic steps
+                    if num_steps_stuck_no_turns[i] < args.stuck_limit_no_turns + args.heuristic_turn_steps \
+                       and num_steps_stuck_no_moves[i] < args.stuck_limit_no_steps + args.heuristic_turn_steps: 
+                        print(f"Agent {i} is stuck. Overriding local action.")
+                        l_action[i] = 3  # Action 3: turn right
+                        num_steps_stuck_no_moves[i] += 1  # Decrement counter to limit turning steps
+                        num_steps_stuck_no_turns[i] += 1  # Decrement counter to limit turning steps
+                    # move forward after turning enough steps
+                    elif num_steps_stuck_no_turns[i] < args.stuck_limit_no_turns + args.heuristic_turn_steps + args.heuristic_forward_steps \
+                       and num_steps_stuck_no_moves[i] < args.stuck_limit_no_steps + args.heuristic_turn_steps + args.heuristic_forward_steps:
+                        print(f"Agent {i} is stuck. Overriding local action.")
+                        l_action[i] = 1  # Action 3: turn right
+                        num_steps_stuck_no_moves[i] += 1  # Decrement counter to limit turning steps
+                        num_steps_stuck_no_turns[i] += 1  # Decrement counter to limit turning steps
+                    else:
+                        is_stuck[i] = False  # Reset stuck status
+                        num_steps_stuck_no_moves[i] = 0  # Reset counter
+                        num_steps_stuck_no_turns[i] = 0  # Reset counter
+
 
             # ------------------------------------------------------------------
             # Env step

@@ -2,8 +2,8 @@ split =  val
 eval =  1 
 debug = 0
 auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
-num_processes = 1 #4 processes by default. used when auto_gpu_config is false
-max_episode_length = 500 #1000 for default
+num_processes = 12 #4 processes by default. used when auto_gpu_config is false
+max_episode_length = 1000 #1000 for default
 num_episodes = 1
 camera_height = 1.25 # 1.25 by default
 

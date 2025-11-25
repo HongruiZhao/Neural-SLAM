@@ -369,6 +369,8 @@ class Exploration_Env(habitat.RLEnv):
         #     obs, rew, done, info = super().step(noisy_action)
         # else:
         #     obs, rew, done, info = super().step(action)
+
+        self.habitat_env._episode_over = False # to avoid auto-reset by habitat.RLEnv
         obs, rew, done, info = super().step(action)
 
         # Preprocess observations
@@ -835,6 +837,7 @@ class Exploration_Env(habitat.RLEnv):
         goal = pu.threshold_poses(goal, grid.shape)
         stg = goal # TODO: visualization for local short-term goal?
         start_x_gt, start_y_gt, start_o_gt = self.curr_loc_gt
+        heuristic_active=inputs['heuristic_active'] if 'heuristic_active' in inputs else None
 
         if args.vis_type == 1: # Visualize predicted map and pose
             vis_grid = vu.get_colored_map(np.rint(map_pred),
@@ -858,7 +861,8 @@ class Exploration_Env(habitat.RLEnv):
                          start_o_gt),
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
-                        args.print_images, self._previous_action, self.accumulated_ratio)
+                        args.print_images, self._previous_action, self.accumulated_ratio,
+                        heuristic_active=heuristic_active)
 
         else: # Visualize ground-truth map and pose
             vis_grid = vu.get_colored_map(self.map,
@@ -877,7 +881,8 @@ class Exploration_Env(habitat.RLEnv):
                         (start_x_gt, start_y_gt, start_o_gt),
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
-                        args.print_images, self._previous_action, self.accumulated_ratio)
+                        args.print_images, self._previous_action, self.accumulated_ratio,
+                        heuristic_active=heuristic_active)
 
 
     def _get_gt_map(self, full_map_size):

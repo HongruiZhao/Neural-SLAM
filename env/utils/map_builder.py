@@ -40,17 +40,20 @@ class MapBuilder(object):
                                                 scale=self.du_scale)
         # visualization for debugging
         if self.debug:
-            flat_PC = point_cloud.reshape(-1, 3) 
-            plt.figure()
-            plt.imshow(depth, cmap='viridis')
-            plt.colorbar(label='Depth Value')
-            plt.savefig('./debug/depth.png')
+            try:
+                flat_PC = point_cloud.reshape(-1, 3) 
+                plt.figure()
+                plt.imshow(depth, cmap='viridis')
+                plt.colorbar(label='Depth Value')
+                plt.savefig('./debug/depth.png')
 
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
-            ax.scatter(flat_PC[:,0], flat_PC[:,1], flat_PC[:,2], s=1, c=flat_PC[:,1], cmap='plasma', alpha=0.8) # Colo
-            ax.view_init(elev=20, azim=-60) # Elevation and azimuth angles
-            plt.savefig('./debug/point_cloud.png')
+                fig = plt.figure()
+                ax = fig.add_subplot(111, projection='3d')
+                ax.scatter(flat_PC[:,0], flat_PC[:,1], flat_PC[:,2], s=1, c=flat_PC[:,1], cmap='plasma', alpha=0.8) # Colo
+                ax.view_init(elev=20, azim=-60) # Elevation and azimuth angles
+                plt.savefig('./debug/point_cloud.png')
+            except:
+                pass
         
         agent_view = du.transform_camera_view(point_cloud,
                                               self.agent_height, # in cm
@@ -70,11 +73,14 @@ class MapBuilder(object):
 
         # visualization for debugging
         if self.debug:
-            plt.figure()
-            for i in range(3):
-                plt.subplot(1,3,i+1)
-                plt.imshow(agent_view_flat[:,:,i], cmap='viridis')
-            plt.savefig('./debug/agent_map.png')
+            try:
+                plt.figure()
+                for i in range(3):
+                    plt.subplot(1,3,i+1)
+                    plt.imshow(agent_view_flat[:,:,i], cmap='viridis')
+                plt.savefig('./debug/agent_map.png')
+            except:
+                pass
 
         # only care about second bin 25mm<=z<150mm,
         agent_view_cropped = agent_view_flat[:, :, 1]
@@ -87,9 +93,12 @@ class MapBuilder(object):
         agent_view_explored[agent_view_explored > 0] = 1.0
 
         if self.debug:
-            plt.figure()
-            plt.imshow(agent_view_explored, cmap='viridis')
-            plt.savefig('./debug/agent_explored.png')
+            try:
+                plt.figure()
+                plt.imshow(agent_view_explored, cmap='viridis')
+                plt.savefig('./debug/agent_explored.png')
+            except:     
+                pass
 
         geocentric_pc = du.transform_pose(agent_view, current_pose)
 
@@ -109,12 +118,15 @@ class MapBuilder(object):
         explored_gt[explored_gt > 1] = 1.0
 
         if self.debug:
-            plt.figure()
-            plt.imshow(map_gt, cmap='viridis')
-            plt.savefig('./debug/map_gt.png')
-            plt.figure()
-            plt.imshow(explored_gt, cmap='viridis')
-            plt.savefig('./debug/explored_gt.png')
+            try:
+                plt.figure()
+                plt.imshow(map_gt, cmap='viridis')
+                plt.savefig('./debug/map_gt.png')
+                plt.figure()
+                plt.imshow(explored_gt, cmap='viridis')
+                plt.savefig('./debug/explored_gt.png')
+            except:     
+                pass
 
         return agent_view_cropped, map_gt, agent_view_explored, explored_gt
 

@@ -189,9 +189,14 @@ def get_args():
     parser.add_argument('--output_debug_env', type=int, default=0)
     parser.add_argument('--use_ffm_planner', type=int, default=0)
 
-    parser.add_argument('--stuck_limit', type=int, default=10, 
-                        help='number of steps until an agent is considered stuck')
-
+    parser.add_argument('--stuck_limit_no_steps', type=int, default=40, 
+                        help='number of steps wihtout forward movement until an agent is considered stuck')
+    parser.add_argument('--stuck_limit_no_turns', type=int, default=20, 
+                        help='number of steps without turning until an agent is considered stuck, should be lower than no steps')
+    parser.add_argument('--heuristic_turn_steps', type=int, default=10, 
+                        help='number of steps to turn when stuck')
+    parser.add_argument('--heuristic_forward_steps', type=int, default=10, 
+                        help='number of steps to turn when stuck')
 
     # parse arguments
     args = parser.parse_args()
@@ -276,5 +281,7 @@ def get_args():
         args.num_mini_batch = args.num_processes // 2
     else:
         args.num_mini_batch = int(args.num_mini_batch)
+
+    assert args.stuck_limit_no_turns < args.stuck_limit_no_steps
 
     return args

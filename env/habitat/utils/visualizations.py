@@ -33,7 +33,8 @@ def visualize(fig, ax,
               img, grid, uncert_map,
               pos, gt_pos, 
               dump_dir, rank, ep_no, t,
-              visualize, print_images, previous_action, accumulated_ratio):
+              visualize, print_images, previous_action, accumulated_ratio,
+              heuristic_active=None):
     """
     Args:
         rank: Thread No.
@@ -50,12 +51,14 @@ def visualize(fig, ax,
             ax[i].set_xticklabels([])
 
         ax[0].imshow(img)
-        ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
+        ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15, color='red' if heuristic_active else 'black')
 
         title = f"Step={t}, Exp_ratio={accumulated_ratio:.2f}"
+        if heuristic_active is not None:
+            title += f", Heuristic={'On' if heuristic_active else 'Off'}"
 
         ax[1].imshow(grid, origin='lower') # to be right hand coordinate
-        ax[1].set_title(title, fontsize=15)
+        ax[1].set_title(title, fontsize=15, color='red' if heuristic_active else 'black')
     else:
         for i in range(3):
             ax[i].clear()
