@@ -189,13 +189,20 @@ def get_args():
     parser.add_argument('--output_debug_env', type=int, default=0)
     parser.add_argument('--use_ffm_planner', type=int, default=0)
 
+    # heuristic type and parameters
+    parser.add_argument('--heuristic_strategy', type=str, default="probe",
+                        help='decide between different heuristic types: \
+                            none=>no heuristic \
+                            base=>turn right and step forward \
+                            probe=>simulate sliding, keep turning until the agent can move forward')
+        # base heuristic parameters
     parser.add_argument('--stuck_limit_no_steps', type=int, default=40, 
                         help='number of steps wihtout forward movement until an agent is considered stuck')
-    parser.add_argument('--stuck_limit_no_turns', type=int, default=20, 
+    parser.add_argument('--stuck_limit_no_turns', type=int, default=5, 
                         help='number of steps without turning until an agent is considered stuck, should be lower than no steps')
-    parser.add_argument('--heuristic_turn_steps', type=int, default=10, 
+    parser.add_argument('--heuristic_turn_steps', type=int, default=2, 
                         help='number of steps to turn when stuck')
-    parser.add_argument('--heuristic_forward_steps', type=int, default=10, 
+    parser.add_argument('--heuristic_forward_steps', type=int, default=3, 
                         help='number of steps to turn when stuck')
 
     # parse arguments
