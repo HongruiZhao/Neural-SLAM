@@ -117,7 +117,7 @@ class Exploration_Env(habitat.RLEnv):
         if args.visualize:
             plt.ion()
         if args.print_images or args.visualize:
-            if args.global_arch == 'lena':
+            if args.use_NeRF_mapping:
                 self.figure, self.ax = plt.subplots(1,3, figsize=(9*16/9, 6),
                                     facecolor="whitesmoke",
                                     num="Thread {}".format(rank))
@@ -160,6 +160,7 @@ class Exploration_Env(habitat.RLEnv):
 
         # for neural implicit mapping 
         self.nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
+        self.exp_name = args.exp_name
         fx, fy, cx, cy, self.img_H, self.img_W = get_camera_intrinsics(
             self.habitat_env.sim, 'depth')
         self.rays_d = get_camera_rays(self.img_H, self.img_W, fx, fy, cx, cy)
@@ -169,7 +170,6 @@ class Exploration_Env(habitat.RLEnv):
                         'num_rays_to_save':self.num_rays_to_save, 
                         'H':self.img_H, 'W':self.img_W }
         self.nerf_mapper = None # will get created at reset 
-        self.exp_name = self.nerf_map_cfg['data']['exp_name']
         self.q_initial = None # quat of cam to world at reset 
 
     def save_trajectory_data(self):
@@ -265,7 +265,7 @@ class Exploration_Env(habitat.RLEnv):
                 self.mapper.update_map(depth, mapper_gt_pose)
             
             # Initialize neural implicit map
-            if args.global_arch == 'lena': 
+            if args.use_NeRF_mapping: 
                 self.nerf_map_cfg['mapping']['bound'] = \
                     [   [-self.map_size_cm/100, 0], 
                         [-1.5,4], 
@@ -399,7 +399,7 @@ class Exploration_Env(habitat.RLEnv):
         fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
         
-        if args.global_arch == 'lena': 
+        if args.use_NeRF_mapping: 
             if np.any(obs['rgb']): # sometimes it may get a "black" images. only update NeRF with valid images 
                 self.NeRF_timestep += 1
                 # neural implicit mapping
@@ -771,7 +771,7 @@ class Exploration_Env(habitat.RLEnv):
                             self.visited_gt,
                             self.visited_gt,
                             (goal[0]+gx1, goal[1]+gy1),
-                            stg,
+                            (stg[0]+gx1, stg[1]+gy1),
                             self.explored_map,
                             self.explorable_map,
                             self.map*self.explored_map)

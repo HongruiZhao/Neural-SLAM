@@ -15,6 +15,8 @@ load_slam = pretrained_models/model_best.slam
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
 
 global_arch = lena
+use_NeRF_mapping = 1
+
 num_global_steps = 40 # default 40
 num_mini_batch = 32 # default 32
 

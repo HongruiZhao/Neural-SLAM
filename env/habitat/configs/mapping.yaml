@@ -8,7 +8,7 @@ mapping:
   
 
 mesh: 
-  vis: 500000000 # don't save meshes 
+  vis: 1000 #500000000 # don't save meshes 
 
 grid:
   enc: 'HashGrid'
@@ -27,7 +27,7 @@ cam:
 
 data:
   output: results/mapping
-  exp_name: train_uncert_Oct19
+  exp_name: bruh
 
 training:
   rgb_weight: 5.0 #5.0 by default
