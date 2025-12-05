@@ -118,11 +118,15 @@ class Exploration_Env(habitat.RLEnv):
             plt.ion()
         if args.print_images or args.visualize:
             if args.use_NeRF_mapping:
-                self.figure, self.ax = plt.subplots(1,3, figsize=(9*16/9, 6),
+                self.figure = plt.figure(figsize=(9*16/9, 9),
                                     facecolor="whitesmoke",
                                     num="Thread {}".format(rank))
+                self.ax = [plt.subplot2grid((2, 3), (0, 0)),
+                           plt.subplot2grid((2, 3), (0, 1)),
+                           plt.subplot2grid((2, 3), (0, 2)),
+                           plt.subplot2grid((2, 3), (1, 0), colspan=3)]
             else:
-                self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
+              self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
                                         facecolor="whitesmoke",
                                         num="Thread {}".format(rank))
         self.args = args
@@ -209,6 +213,7 @@ class Exploration_Env(habitat.RLEnv):
         self._previous_action = None
         self.trajectory_states = []
         self.accumulated_ratio = 0
+        self.uncert_sum_history = []
 
 
         if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
@@ -287,8 +292,11 @@ class Exploration_Env(habitat.RLEnv):
                                     rays_d=self.rays_d)
                 self.nerf_mapper.run(self.NeRF_timestep, batch)
                 self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).sum()))
+                if self.args.use_uncertainty_reward:
+                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).sum()
             else:
-                self.uncert_map = None 
+                self.uncert_map = None
             
             if self.args.debug:
                 plt.figure()
@@ -412,6 +420,8 @@ class Exploration_Env(habitat.RLEnv):
                                         rays_d=self.rays_d)
                 self.nerf_mapper.run(self.NeRF_timestep, batch) 
             self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+            if self.NeRF_timestep % self.nerf_map_cfg['mapping']['map_every']==0:
+                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).sum()))
         else:
             self.uncert_map = None 
 
@@ -487,16 +497,28 @@ class Exploration_Env(habitat.RLEnv):
         return 0.
 
     def get_global_reward(self):
-        curr_explored = self.explored_map*self.explorable_map
-        curr_explored_area = curr_explored.sum()
+        if self.args.use_uncertainty_reward and self.uncert_map is not None:
+            current_uncert_sum = (self.uncert_map * self.explorable_map).sum()
+            m_reward = self.prev_uncert_sum - current_uncert_sum
 
-        reward_scale = self.explorable_map.sum()
-        m_reward = (curr_explored_area - self.prev_explored_area)*1.
-        m_ratio = m_reward/reward_scale
-        m_reward = m_reward * 25./10000. # converting to m^2
-        self.prev_explored_area = curr_explored_area
+            reward_scale = self.explorable_map.sum()
+            m_ratio = m_reward / reward_scale
+            
+            self.prev_uncert_sum = current_uncert_sum
 
-        m_reward *= 0.02 # Reward Scaling
+            m_reward *=  1e-4 # scaled to be similar to area coverage reward 
+
+        else:
+            curr_explored = self.explored_map*self.explorable_map
+            curr_explored_area = curr_explored.sum()
+
+            reward_scale = self.explorable_map.sum()
+            m_reward = (curr_explored_area - self.prev_explored_area)*1.
+            m_ratio = m_reward/reward_scale
+            m_reward = m_reward * 25./10000. # converting to m^2
+            self.prev_explored_area = curr_explored_area
+
+            m_reward *= 0.02 # Reward Scaling
 
         return m_reward, m_ratio
 
@@ -763,7 +785,8 @@ class Exploration_Env(habitat.RLEnv):
                          start_o_gt),
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
-                        args.print_images, self._previous_action, self.accumulated_ratio)
+                        args.print_images, self._previous_action, self.accumulated_ratio,
+                        uncert_sum_history=self.uncert_sum_history)
 
         else: # Visualize ground-truth map and pose
             vis_grid = vu.get_colored_map(self.map,
@@ -782,7 +805,8 @@ class Exploration_Env(habitat.RLEnv):
                         (start_x_gt, start_y_gt, start_o_gt),
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
-                        args.print_images, self._previous_action, self.accumulated_ratio)
+                        args.print_images, self._previous_action, self.accumulated_ratio,
+                        uncert_sum_history=self.uncert_sum_history)
 
 
     def _get_gt_map(self, full_map_size):

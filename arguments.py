@@ -189,6 +189,8 @@ def get_args():
                         help='num of heads of tensor transfomer')
     parser.add_argument('--tf_dim_head', type=int, default=64,
                         help='dim of heads of tensor transfomer')
+    parser.add_argument('--use_uncertainty_reward', type=int, default=0,
+                        help='use uncertainty reduction as reward')
 
 
 
@@ -197,7 +199,7 @@ def get_args():
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
-    if args.global_arch == 'lena':
+    if args.global_arch == 'lena' or args.use_uncertainty_reward:
         args.use_NeRF_mapping = 1
 
     if args.cuda:

@@ -33,7 +33,8 @@ def visualize(fig, ax,
               img, grid, uncert_map,
               pos, gt_pos, 
               dump_dir, rank, ep_no, t,
-              visualize, print_images, previous_action, accumulated_ratio):
+              visualize, print_images, previous_action, accumulated_ratio,
+              uncert_sum_history=None):
     """
     Args:
         rank: Thread No.
@@ -56,6 +57,7 @@ def visualize(fig, ax,
 
         ax[1].imshow(grid, origin='lower') # to be right hand coordinate
         ax[1].set_title(title, fontsize=15)
+
     else:
         for i in range(3):
             ax[i].clear()
@@ -75,6 +77,13 @@ def visualize(fig, ax,
         ax[2].imshow(uncert_map, origin='lower', cmap='plasma') # to be right hand coordinate
         ax[2].set_title('Uncertainty_map', fontsize=15)
 
+        ax[-1].clear()
+        steps, sums = zip(*uncert_sum_history)
+        ax[-1].plot(steps, sums, marker='o')
+        ax[-1].set_title("Uncertainty Sum vs Step")
+        ax[-1].set_xlabel("Step")
+        ax[-1].set_ylabel("Uncertainty Sum")
+        ax[-1].grid(True)
     # Draw GT agent pose
     agent_size = 8
     x, y, o = gt_pos

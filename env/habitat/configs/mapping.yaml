@@ -8,7 +8,7 @@ mapping:
   
 
 mesh: 
-  vis: 1000 #500000000 # don't save meshes 
+  vis: 500000000 #500000000 # don't save meshes 
 
 grid:
   enc: 'HashGrid'
