@@ -14,6 +14,49 @@ from ramen_mapping import data_loading, get_camera_rays, Mapping
 from config import load_config
 
 
+class save_scene_as_replica():
+    def __init__(self, cfg):
+        """
+        Save the collected batches as a new scene in Replica format.
+        """
+        exp_name = cfg['data']['exp_name']
+        scene_dir = os.path.join('data', 'Replica', exp_name)
+        self.results_dir = os.path.join(scene_dir, 'results')
+        os.makedirs(self.results_dir, exist_ok=True)
+
+        self.traj_path = os.path.join(scene_dir, 'traj.txt')
+        self.png_depth_scale = cfg['cam']['png_depth_scale']
+        self.sc_factor = cfg['data']['sc_factor']
+
+        print(f"Saving recorded scene to {scene_dir}...")
+
+
+    def save_a_batch(self, i, batch):
+        mode = 'w' if i==0 else 'a'
+        with open(self.traj_path, mode) as f:
+            # Save RGB image
+            rgb_tensor = batch['rgb'].squeeze(0) # H, W, 3
+            rgb_np = (rgb_tensor.cpu().numpy() * 255).astype(np.uint8)
+            rgb_bgr = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2BGR)
+            rgb_path = os.path.join(self.results_dir, f'frame{i:06d}.jpg')
+            cv2.imwrite(rgb_path, rgb_bgr)
+
+            # Save depth image
+            depth_tensor = batch['depth'].squeeze(0) # H, W
+            depth_np = (depth_tensor.cpu().numpy() * self.png_depth_scale).astype(np.uint16)
+            depth_path = os.path.join(self.results_dir, f'depth{i:06d}.png')
+            cv2.imwrite(depth_path, depth_np)
+
+            # Save pose
+            c2w = batch['c2w'].squeeze(0).cpu().numpy()
+            c2w_to_save = c2w.copy()
+            c2w_to_save[:3, 1] *= -1
+            c2w_to_save[:3, 2] *= -1
+            c2w_to_save[:3, 3] /= self.sc_factor
+            
+            f.write(' '.join(map(str, c2w_to_save.flatten())) + '\n')
+
+
 def habitat_sim_cfg(cfg):
     sim_cfg = habitat_sim.SimulatorConfiguration()
     sim_cfg.gpu_device_id = 0
@@ -139,8 +182,7 @@ def main(habitat_cfg, mapping_cfg):
     agent_state = habitat_sim.AgentState()
     agent_state.position = np.array([0, 0.0, 0.0])  # world space
     agent.set_state(agent_state)    
-
-    
+  
     # set up mapper
     H, W = habitat_cfg["agent"]["height"], habitat_cfg["agent"]["width"]
     fx, fy, cx, cy = get_camera_intrinsics(sim, 'depth_sensor')
@@ -149,13 +191,16 @@ def main(habitat_cfg, mapping_cfg):
     rays_d = get_camera_rays(H, W, fx, fy, cx, cy)
     mapper = Mapping(mapping_cfg, id=0, dataset_info=dataset_info)
   
-
     # set up keyboard 
     # in a non-blocking fashion:
     global cmd 
     cmd = None
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
+
+    # for saving dataset 
+    saver =  save_scene_as_replica(mapping_cfg)
+ 
 
     for i in trange(max_frames):
         
@@ -182,6 +227,7 @@ def main(habitat_cfg, mapping_cfg):
         display_sample(rgb, semantic, depth)
         batch = data_loading(rgb, depth, agent_pos, agent_q, step=i, rays_d=rays_d)
         mapper.run(i, batch)
+        saver.save_a_batch(i, batch)
 
             
 

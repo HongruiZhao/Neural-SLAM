@@ -4,14 +4,14 @@ debug = 0
 auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
 num_processes = 1 # 4 processes by default. used when auto_gpu_config is false
 max_episode_length = 1000 #1000 for default
-num_episodes = 2
+num_episodes = 3
 
 train_global = 0
 train_local = 0
 train_slam = 0
 use_nslam = 0
 
-load_global = results/models/train_lena_uncertR_Dec2/model_best.global
+load_global = results/models/train_lena_Nov16/model_best.global
 load_local = pretrained_models/model_best.local
 load_slam = pretrained_models/model_best.slam
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
@@ -29,6 +29,6 @@ use_deterministic_local = 0
 print_images = 1
 vis_type = 2 # 2 show GT map, 1 show predicted map
 dump_location = results/
-exp_name = eval_lena_Dec5
+exp_name = eval_lena_Dec29
 
 

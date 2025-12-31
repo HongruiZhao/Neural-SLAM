@@ -269,6 +269,15 @@ class Exploration_Env(habitat.RLEnv):
             fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
             
+            # Initialize variables
+            self.scene_name = self.habitat_env.current_episode.scene_id \
+                                .split('/')[-1].split('.')[0]
+            self.visited = np.zeros(self.map.shape)
+            self.visited_vis = np.zeros(self.map.shape)
+            self.visited_gt = np.zeros(self.map.shape)
+            self.collison_map = np.zeros(self.map.shape)
+            self.col_width = 1
+
             # Initialize neural implicit map
             if args.use_NeRF_mapping: 
                 self.nerf_map_cfg['mapping']['bound'] = \
@@ -280,8 +289,13 @@ class Exploration_Env(habitat.RLEnv):
                 self.nerf_map_cfg['grid']['voxel_uncert'] = args.map_resolution / 100 
                 self.nerf_map_cfg['data']['exp_name'] = \
                         self.exp_name + '_ep' + str(self.episode_no//2)
+                
+                agent_state = self.habitat_env.sim.get_agent_state(0)
+                initial_state = {'position':agent_state.position, 'rotation':agent_state.rotation}
+
                 self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
-                                        dataset_info=self.dataset_info)
+                                        dataset_info=self.dataset_info, 
+                                        scene_name=self.scene_name, initial_state=initial_state)
                 # first frame mapping 
                 batch = data_loading( obs['rgb'], obs['depth'][...,0],
                                     [ -self.curr_loc[1], 
@@ -302,15 +316,6 @@ class Exploration_Env(habitat.RLEnv):
                 plt.figure()
                 plt.imshow(self.explorable_map*3 + self.explored_map, cmap='viridis') # multiply with a random scalar to get three colors
                 plt.savefig('./debug/explore_overlap.png')
-
-            # Initialize variables
-            self.scene_name = self.habitat_env.current_episode.scene_id \
-                                .split('/')[-1].split('.')[0]
-            self.visited = np.zeros(self.map.shape)
-            self.visited_vis = np.zeros(self.map.shape)
-            self.visited_gt = np.zeros(self.map.shape)
-            self.collison_map = np.zeros(self.map.shape)
-            self.col_width = 1
 
             # Set info
             self.info = {

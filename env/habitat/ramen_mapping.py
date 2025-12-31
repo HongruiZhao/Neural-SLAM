@@ -18,11 +18,13 @@ from .utils.mapping_utils import coordinates, extract_mesh
 
 
 class Mapping():
-    def __init__(self, config, id, dataset_info):
+    def __init__(self, config, id, dataset_info, scene_name, initial_state):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.agent_id = id 
         self.dataset_info = dataset_info 
+        self.scene_name = scene_name
+        self.initial_state = initial_state
         save_path = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}')
         os.makedirs(save_path, exist_ok=True)
 
@@ -99,7 +101,8 @@ class Mapping():
         '''
         save_dict = {'pose': self.est_c2w_data,
                      'pose_rel': self.est_c2w_data_rel,
-                     'model': self.model.state_dict()}
+                     'model': self.model.state_dict(),
+                     'initial_state': self.initial_state}
         torch.save(save_dict, save_path)
         print('Save the NeRF checkpoint')
 
@@ -322,7 +325,7 @@ class Mapping():
         
     
     def save_mesh(self, i, voxel_size=0.05):
-        mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', 'mesh_track{}.ply'.format(i))            
+        mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', f'mesh_{self.scene_name}_{i}.ply')            
         
         if self.config['mesh']['render_color']:
             color_func = self.model.render_surface_color
@@ -338,7 +341,7 @@ class Mapping():
         
         if self.config['mesh']['save_uncert'] and (self.config['grid']['uncertainty'] != 'none'):
             mesh_uncert_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], 
-                                         f'agent_{self.agent_id}', 'mesh_uncert_track{}.ply'.format(i))
+                                         f'agent_{self.agent_id}', 'uncert_{}.ply'.format(i))
             extract_mesh(self.model.query_sdf, 
                 self.config, 
                 self.bounding_box, 
