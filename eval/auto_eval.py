@@ -1,13 +1,15 @@
 import argparse
 import json
 import os
-import copy
 import re
-import numpy as np
 import config
-import sys
 import subprocess
 import glob
+from tqdm import tqdm 
+import itertools
+import re
+from multiprocessing import Pool
+
 
 def run_command(command):
     """Runs a command and returns its stdout, printing errors if any."""
@@ -61,6 +63,45 @@ def find_last_mesh(agent_path):
     return latest_file
 
 
+class cull_and_evaluate:
+    def __init__(self,base_path, culled_mesh_files, skip_cull, 
+                 mapping_cfg_path, gt_mesh,):
+        self.base_path = base_path 
+        self.culled_mesh_files = culled_mesh_files
+        self.skip_cull = skip_cull
+        self.mapping_cfg_path = mapping_cfg_path
+        self.gt_mesh = gt_mesh
+
+    def process(self,input_mesh):
+        step = input_mesh.split('/')[-1].split('_')[-1].split('.')[0]
+        ckpt_path =  os.path.join(self.base_path, f'checkpoint_{step}.pt')
+
+        # 1. Cull Mesh
+        cull_exist = (input_mesh).split('.')[0] + '_cull_occlusion' + '.ply' in self.culled_mesh_files
+        if cull_exist or self.skip_cull:
+            rec_mesh_culled = (input_mesh).split('.')[0] + '_cull_occlusion' + '.ply'
+        else:
+            cull_cmd = (
+                    f"python ./eval/cull_mesh.py --config {self.mapping_cfg_path} --input_mesh {input_mesh} "
+                    f"--remove_occlusion --ckpt_path {ckpt_path}"
+                )
+            rec_mesh_culled = input_mesh.replace('.ply', '_cull_occlusion.ply')
+            run_command(cull_cmd)
+        # 2. Evaluate Reconstruction
+        eval_cmd = (f"python ./eval/eval_recon.py --rec_mesh {rec_mesh_culled} \
+                    --gt_mesh {self.gt_mesh} --ckpt_path {ckpt_path} ")
+        eval_output = run_command(eval_cmd)
+
+        # 3. Extract and store metrics
+        acc, comp, comp_ratio = extract_metrics_from_output(eval_output)
+        return {
+            "acc": acc,
+            "comp": comp,
+            "comp_ratio": comp_ratio,
+            "mesh_name": input_mesh.split('/')[2:]
+        }
+
+
 def main():
     parser = argparse.ArgumentParser(description='Automatic evaluation script for LENA.')
     parser.add_argument('--config', type=str, default='eval/eval_basic.yaml',
@@ -71,36 +112,33 @@ def main():
     
     exp_cfg = config.load_config(args.config)
     mapping_cfg_path = exp_cfg['mapping_cfg']
-    for exp_name, episode, thread in \
-        zip(exp_cfg['exp_names'], exp_cfg['episodes'], exp_cfg['threads']):
-            base_path = os.path.join('results/mapping', f'{exp_name}_ep{episode}', f'agent_{thread}')
+    num_processes = exp_cfg['num_processes']
+    all_exps = list(itertools.product(exp_cfg['exp_names'], exp_cfg['episodes'], exp_cfg['threads']))
+    evaluation_results = {"acc":[], "comp":[], "comp_ratio":[], "mesh_name":[]}
+
+    for exp in tqdm(all_exps, desc='outer'):
+            base_path = os.path.join('results/mapping', f'{exp[0]}_ep{exp[1]}', f'agent_{exp[2]}')
             mesh_files = glob.glob(os.path.join(base_path, 'mesh*.ply'))
+            culled_mesh_files = glob.glob(os.path.join(base_path, 'mesh*_cull_occlusion.ply'))
+            mesh_files = [mesh for mesh in mesh_files if mesh not in culled_mesh_files]
+            mesh_files.sort(key=lambda x: int(x.split('/')[-1].split('_')[-1].split('.')[0]) )
             scene_name = mesh_files[-1].split('/')[-1].split('_')[1]
             gt_mesh = os.path.join(exp_cfg['gt_path'], f'{scene_name}.glb')
 
-            for input_mesh in mesh_files:
-                step = input_mesh.split('/')[-1].split('_')[-1].split('.')[0]
-                ckpt_path =  os.path.join(base_path, f'checkpoint_{step}.pt')
+            # Parallel culling & evaluation
+            cull_and_evaluate_obj = cull_and_evaluate(base_path, culled_mesh_files, args.skip_cull, 
+                                                      mapping_cfg_path, gt_mesh)
+            with Pool(processes=num_processes) as pool: 
+                results = pool.map(cull_and_evaluate_obj.process, mesh_files)
 
-                # 1. Cull Mesh
-                if ('_cull' in input_mesh) or args.skip_cull:
-                    print(f"  cull mesh exists: {input_mesh}")
-                    rec_mesh_culled = input_mesh
-                else:
-                    print(f"  Processing mesh: {input_mesh}")
-                    cull_cmd = (
-                            f"python ./eval/cull_mesh.py --config {mapping_cfg_path} --input_mesh {input_mesh} "
-                            f"--remove_occlusion --ckpt_path {ckpt_path}"
-                        )
-                    rec_mesh_culled = input_mesh.replace('.ply', '_cull_occlusion.ply')
-                    run_command(cull_cmd)
-                # 2. Evaluate Reconstruction
-                eval_cmd = (f"python ./eval/eval_recon.py --rec_mesh {rec_mesh_culled} --gt_mesh {gt_mesh} ")
-                eval_output = run_command(eval_cmd)
+            for res in results:
+                evaluation_results["acc"].append(res["acc"])
+                evaluation_results["comp"].append(res["comp"])
+                evaluation_results["comp_ratio"].append(res["comp_ratio"])
+                evaluation_results["mesh_name"].append(res["mesh_name"])
 
-                # 3. Extract and store metrics
-                acc, comp, comp_ratio = extract_metrics_from_output(eval_output)
-
+    with open('./eval/evaluation_results.json', 'w') as f:
+        json.dump(evaluation_results, f, indent=4)
 
 
 if __name__ == '__main__':

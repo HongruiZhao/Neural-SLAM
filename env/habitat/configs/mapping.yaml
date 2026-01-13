@@ -4,11 +4,11 @@ mapping:
   marching_cubes_bound:  [[-10,10],[-1.5,4],[-10,10]] 
   map_every: 10
   lr_uncert: 0.01
-  first_mesh: False # don't save first mesh
+  first_mesh: True # don't save first mesh
   
-
 mesh: 
-  vis: 100 #500000000 # don't save meshes 
+  vis: 10 #500000000 # don't save meshes 
+  save_uncert: False
 
 grid:
   enc: 'HashGrid'

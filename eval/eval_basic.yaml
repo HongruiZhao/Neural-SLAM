@@ -1,5 +1,6 @@
-exp_names: ['eval_lena_Dec14']
+exp_names: ['saveMesh_Jan5']
 episodes: ['1']
 threads: ['0']
 gt_path: '/home/hongrui/Datasets/habitat/scene_datasets/gibson'
 mapping_cfg: 'env/habitat/configs/mapping.yaml'
+num_processes: 5

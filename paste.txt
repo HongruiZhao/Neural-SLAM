@@ -1,7 +1,0 @@
-# translation to account for initial position
-agent_height = 1.25 # in m
-habitat_ori2robot = initial_state['position'] 
-habitat_ori2robot[1] += agent_height   
-habitat_ori2robot = trans_habitat2mesh[:3,:3] @ habitat_ori2robot
-trans_step2[:3,3] = habitat_ori2robot
-mesh_rec = mesh_rec.apply_transform(trans_step2)

@@ -18,11 +18,11 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [   "--rec_mesh",
-                        "results/mapping/eval_lena_Dec29_ep2/agent_0/mesh_Cantwell_999_cull_occlusion.ply",
+                        "results/mapping/eval_lena_Dec29_ep1/agent_0/mesh_Cantwell_99_cull_occlusion.ply",
                         "--gt_mesh",
                         "/home/hongrui/Datasets/habitat/scene_datasets/gibson/Cantwell.glb",
                         "--ckpt_path",
-                        "results/mapping/eval_lena_Dec29_ep2/agent_0/checkpoint_999.pt",
+                        "results/mapping/eval_lena_Dec29_ep1/agent_0/checkpoint_99.pt",
                     ],
         },
         {
