@@ -1,0 +1,31 @@
+import os
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
+import trimesh
+import pyrender
+import numpy as np
+from PIL import Image
+
+tm_scene = trimesh.Scene([mesh_rec, mesh_gt])
+scene = pyrender.Scene.from_trimesh_scene(tm_scene)
+
+camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0, aspectRatio=1.0)
+
+x_rot = np.radians(30)   # Tilt down 30 degrees
+y_rot = np.radians(45)   # Rotate 45 degrees around the side
+z_rot = np.radians(0)    # No roll
+distance = 10
+pose = trimesh.transformations.euler_matrix(x_rot,y_rot,z_rot,'sxyz') # axes flip 
+pose[1,3] = -distance
+scene.add(camera, pose=pose)
+
+light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=3.0)
+scene.add(light, pose=camera_pose)
+
+r = pyrender.OffscreenRenderer(viewport_width=640, viewport_height=480)
+color, depth = r.render(scene)
+
+img = Image.fromarray(color)
+img.save('output_render.png')
+print("Saved output_render.png")
+
+r.delete()

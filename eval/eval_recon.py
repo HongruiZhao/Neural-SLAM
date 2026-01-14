@@ -84,23 +84,23 @@ def get_align_transformation(rec_meshfile, gt_meshfile, mesh_rec, initial_state)
     trans_step2[:3,3] = habitat_ori2robot
     mesh_rec = mesh_rec.apply_transform(trans_step2)
 
-    # icp for fine alignment 
-    trans_init = np.eye(4)
-    o3d_rec_pc = o3d.geometry.PointCloud(points=o3d_rec_mesh.vertices)
-    o3d_gt_pc = o3d.geometry.PointCloud(points=o3d_gt_mesh.vertices)
-    threshold = 0.1
-    reg_p2p = o3d.pipelines.registration.registration_icp(
-        o3d_rec_pc, o3d_gt_pc, threshold, trans_init,
-        o3d.pipelines.registration.TransformationEstimationPointToPoint())
-    # for open3d 0.9.0
-    # reg_p2p = o3d.registration.registration_icp(
+    # # icp for fine alignment 
+    # trans_init = np.eye(4)
+    # o3d_rec_pc = o3d.geometry.PointCloud(points=o3d_rec_mesh.vertices)
+    # o3d_gt_pc = o3d.geometry.PointCloud(points=o3d_gt_mesh.vertices)
+    # threshold = 0.1
+    # reg_p2p = o3d.pipelines.registration.registration_icp(
     #     o3d_rec_pc, o3d_gt_pc, threshold, trans_init,
-    #     o3d.registration.TransformationEstimationPointToPoint())
-    transformation = reg_p2p.transformation
+    #     o3d.pipelines.registration.TransformationEstimationPointToPoint())
+    # # for open3d 0.9.0
+    # # reg_p2p = o3d.registration.registration_icp(
+    # #     o3d_rec_pc, o3d_gt_pc, threshold, trans_init,
+    # #     o3d.registration.TransformationEstimationPointToPoint())
+    # transformation = reg_p2p.transformation
 
-    mesh_rec = mesh_rec.apply_transform(transformation)
+    # mesh_rec = mesh_rec.apply_transform(transformation)
 
-    return transformation, mesh_rec
+    return mesh_rec
 
 
 def check_proj(points, W, H, fx, fy, cx, cy, c2w):
@@ -161,7 +161,7 @@ def calc_3d_metric(rec_meshfile, gt_meshfile, initial_state, align=True):
     mesh_gt = trimesh.load(gt_meshfile, process=False, force='mesh') # force: otherwise.glb are loaded as scene
 
     if align:
-        transformation, mesh_rec = get_align_transformation(rec_meshfile, gt_meshfile, 
+        mesh_rec = get_align_transformation(rec_meshfile, gt_meshfile, 
                                                             mesh_rec, initial_state)
 
     rec_pc = trimesh.sample.sample_surface(mesh_rec, 200000)
