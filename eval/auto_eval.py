@@ -128,8 +128,13 @@ def main():
             # Parallel culling & evaluation
             cull_and_evaluate_obj = cull_and_evaluate(base_path, culled_mesh_files, args.skip_cull, 
                                                       mapping_cfg_path, gt_mesh)
-            with Pool(processes=num_processes) as pool: 
-                results = pool.map(cull_and_evaluate_obj.process, mesh_files)
+            
+            with Pool(processes=num_processes) as pool:
+                results = list(tqdm(
+                    pool.imap(cull_and_evaluate_obj.process, mesh_files, chunksize=5), 
+                    total=len(mesh_files),
+                    desc="Processing meshes"
+                ))
 
             for res in results:
                 evaluation_results["acc"].append(res["acc"])

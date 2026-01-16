@@ -96,6 +96,29 @@ python main.py --config ./configs/eval_vis.txt
 
 You can change what saved models to evaluate in `./configs/eval_vis.txt`.  If `print_images = 1` images (camera observation + map) will saved into `$dum_location/$exp_name`. A video will also be generated from the saved images.  
 
+## Running a Specific Scene for Evaluation
+
+To evaluate on a specific scene, you first need to generate a list of all available validation episodes. You can do this by running the following script:
+
+```bash
+python utils/get_episodes.py
+```
+
+This will create a `val_episodes.json` file in the root directory, which contains the `episode_id` and `scene_id` for each episode in the validation set.
+
+Once you have the `episode_id` of the scene you want to evaluate, add it to your evaluation configuration file (e.g., `configs/eval_lena.txt` or `configs/eval_NSLAM.txt`). Make sure you also have `num_processes = 1` in the config file.
+
+```
+eval_scene_id = YOUR_EPISODE_ID
+```
+
+Then, run the evaluation using that config file:
+
+```bash
+python main.py --config ./configs/eval_lena.txt
+```
+Replace `YOUR_EPISODE_ID` with the desired `episode_id` from the `val_episodes.json` file.
+
 # Code structure
 - You can find global policy, path planner, and local policy starting from `main.py` .
 - The most important simulation environment file is `env/habitat/exploration_env.py` which defines the `step()` and `reset()` functions for each process.

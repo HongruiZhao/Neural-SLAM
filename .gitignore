@@ -136,3 +136,5 @@ dmypy.json
 /mapping_test.py/output/turtlebot
 *.prof
 /mapping_test/data
+*.jpg
+*.png

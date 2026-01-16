@@ -298,7 +298,7 @@ if __name__ == "__main__":
         save_path = args.output_mesh
 
     cfg = config.load_config(args.config)
-    assert args.ckpt_path is not None and os.path.exists(args.ckpt_path), "Please ensure you provided ckpt path and it exists!!!"
+    assert args.ckpt_path is not None and os.path.exists(args.ckpt_path), f"{args.ckpt_path} does not exist"
     c2w_list_dict = torch.load(args.ckpt_path, weights_only=False)["pose"]
     c2w_list = [c2w_list_dict[i].cpu().numpy() for i in range(0, len(c2w_list_dict.keys()), args.skip)]
 

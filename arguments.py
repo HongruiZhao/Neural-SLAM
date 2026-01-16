@@ -66,6 +66,9 @@ def get_args():
     parser.add_argument('--print_images', type=int, default=0,
                         help='1: save visualization as images')
     parser.add_argument('--save_trajectory_data', type=str, default="0")
+    parser.add_argument('--eval_scene_id', type=str, default="no",
+                        help="""scene id for evaluation""")
+
 
     # Environment, dataset and episode specifications
     parser.add_argument('-efw', '--env_frame_width', type=int, default=256,

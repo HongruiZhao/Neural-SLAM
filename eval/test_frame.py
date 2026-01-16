@@ -117,6 +117,6 @@ def calc_camera_transform(
     return mn.Matrix4.look_at(eye_translation, lookat, camera_up)
 
 
-create_sim_helper(scene_id='/home/hongrui/Datasets/habitat/scene_datasets/gibson/Cantwell.glb')
+create_sim_helper(scene_id='/home/hongrui/Datasets/habitat/scene_datasets/gibson/Eudora.glb')
 draw_axes(origin)
 show_scene(calc_camera_transform(eye_translation=eye_pos0, lookat=origin))
