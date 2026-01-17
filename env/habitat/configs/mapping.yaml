@@ -7,7 +7,7 @@ mapping:
   first_mesh: False # don't save first mesh
   
 mesh: 
-  vis: 10 #500000000 # don't save meshes 
+  vis: 500000000 # don't save meshes 
   save_uncert: False
 
 grid:

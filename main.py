@@ -11,6 +11,7 @@ from torch.nn import functional as F
 
 import gym
 import logging
+import json
 from arguments import get_args
 from env import make_vec_envs
 from utils.storage import GlobalRolloutStorage, FIFOMemory
@@ -91,6 +92,7 @@ def main():
 
     g_process_rewards = np.zeros((num_scenes))
     accumulated_ratio = np.zeros((num_scenes))
+    all_accumulated_ratios = {}
  
     episode_area_coverage = deque(maxlen=1000)
     per_step_area_coverage = deque(maxlen=1000)
@@ -323,6 +325,7 @@ def main():
     torch.set_grad_enabled(False)
 
     for ep_num in trange(num_episodes):
+        all_accumulated_ratios[ep_num] = []
         if args.use_DD_PPO != 'none':
             l_policy.reset()
         for step in trange(args.max_episode_length):
@@ -495,6 +498,7 @@ def main():
                 exp_ratio = np.asarray([infos[env_idx]['exp_ratio'] for env_idx in range(num_scenes)]) 
                 per_step_area_coverage.append(np.mean(exp_ratio))
                 accumulated_ratio += exp_ratio
+                all_accumulated_ratios[ep_num].append(accumulated_ratio.tolist())
                 done_ratio = accumulated_ratio * (1 - g_masks.cpu().numpy()) # only for done scenes 
                 accumulated_ratio *= g_masks.cpu().numpy() # set done scenes exp ratio to zero
                 if np.sum(done_ratio) != 0:
@@ -690,6 +694,10 @@ def main():
                 save_path = '{}/thread_{}/video_{}.mp4'.format(dump_dir, scene+1, (ep_num+1)*2)
                 os.system(
                     f"ffmpeg -framerate 30  -i  {img_path} -y {save_path}")
+
+    if args.eval:
+        with open(os.path.join(dump_dir, 'accumulated_ratios.json'), 'w') as f:
+            json.dump(all_accumulated_ratios, f, indent=4)
 
 
 if __name__ == "__main__":
