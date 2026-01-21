@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from .encodings import get_encoder
 from .decoder import ColorSDFNet, ColorSDFNet_v2
 from .utils import sample_pdf, batchify, get_sdf_loss, mse2psnr, compute_loss
-from einops import rearrange, repeat 
 
 class JointEncoding(nn.Module):
     def __init__(self, config, bound_box):
@@ -15,7 +14,6 @@ class JointEncoding(nn.Module):
         self.config = config
         self.uncertainty_flag = config['grid']['uncertainty']
         self.bounding_box = bound_box
-        self.do_update_uncert = True
         self.get_resolution()
         self.get_encoding(config)
         self.get_decoder(config)
@@ -36,8 +34,15 @@ class JointEncoding(nn.Module):
         else:
             self.resolution_color = int(dim_max / self.config['grid']['voxel_color'])
 
-        # for uncertainty grid 
+        # for tensor decomposition 
         diff = self.bounding_box[:,1] - self.bounding_box[:,0] 
+        sdf_coarse = (diff / self.config['grid']['sdf_coarse']).int()
+        sdf_fine = (diff / self.config['grid']['sdf_fine']).int()
+        app_coarse = (diff / self.config['grid']['app_coarse']).int()
+        app_fine = (diff / self.config['grid']['app_fine']).int()
+        self.tensor_dims = [sdf_coarse, sdf_fine, app_coarse, app_fine]
+
+        # for uncertainty grid 
         self.uncertainty_res =  (diff / self.config['grid']['voxel_uncert']).int()
         
         print('SDF resolution:', self.resolution_sdf)
@@ -50,18 +55,31 @@ class JointEncoding(nn.Module):
         self.embedpos_fn, self.input_ch_pos = get_encoder(config['pos']['enc'], n_bins=self.config['pos']['n_bins'])
 
         # Sparse parametric encoding (SDF)
-        ensemble_size = config['grid'].get('ensemble_size', 5)
         self.embed_fn, self.input_ch = get_encoder(config['grid']['enc'],log2_hashmap_size=config['grid']['hash_size'], 
                                                     desired_resolution=self.resolution_sdf,
-                                                    uncertainty_flag=self.uncertainty_flag, uncertainty_res=self.uncertainty_res,
-                                                    ensemble_size=ensemble_size)
+                                                    tensors_dim=[self.tensor_dims[0],self.tensor_dims[1]],
+                                                    cp_rank=config['grid']['sdf_rank'], tensor_f_dim=config['grid']['sdf_f_dim'],
+                                                    uncertainty=self.uncertainty_flag, uncertainty_res=self.uncertainty_res)
 
+        # Sparse parametric encoding (Color)
+        if not self.config['grid']['oneGrid']:
+            print('Color resolution:', self.resolution_color)
+            self.embed_fn_color, self.input_ch_color = get_encoder(config['grid']['enc'], log2_hashmap_size=config['grid']['hash_size'], 
+                                                                   desired_resolution=self.resolution_color,
+                                                                   tensors_dim=[self.tensor_dims[2], self.tensor_dims[3]],
+                                                                   cp_rank=config['grid']['app_rank'], tensor_f_dim=config['grid']['app_f_dim'],
+                                                                   uncertainty=False)
 
     def get_decoder(self, config):
         '''
         Get the decoder of the scene representation
         '''
-        self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
+        if not self.config['grid']['oneGrid']:
+            self.decoder = ColorSDFNet(config, input_ch=self.input_ch, input_ch_color=self.input_ch_color,
+                                        input_ch_pos=self.input_ch_pos)
+        else:
+            self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
+        
         self.color_net = batchify(self.decoder.color_net, None)
         self.sdf_net = batchify(self.decoder.sdf_net, None)
 
@@ -121,58 +139,38 @@ class JointEncoding(nn.Module):
 
         return rgb_map, disp_map, acc_map, weights, depth_map, depth_var, uncert_map
     
-    def query_sdf(self, query_points, return_geo=False, smoothness=False, return_uncert=False):
+    def query_sdf(self, query_points, return_geo=False, embed=False, return_uncert=False):
         '''
         Get the SDF value of the query points
         Used for extracting mesh and smoothness loss
         Params:
-            query_points: [N_rays, N_samples, 3] or [X, Y, Z, 3] for smoothnes loss 
-            smoothness: If true, return the embedding for smoothness loss 
+            query_points: [N_rays, N_samples, 3]
         Returns:
             sdf: [N_rays, N_samples]
             geo_feat: [N_rays, N_samples, channel]
         '''
-
-        if smoothness:
-            x, y, z, _ = query_points.shape 
-            inputs_flat = rearrange(query_points, 'x y z d -> (x y z) d')
-            embedded, uncert = self.embed_fn(inputs_flat)
-            if self.uncertainty_flag == 'ensemble':
-                out = rearrange(embedded.mean(dim=1), '(x y z) d -> x y z d', x=x, y=y, z=z)
-            else:
-                out = rearrange(embedded, '(x y z) d -> x y z d', x=x, y=y, z=z)
-            return out
-
-        rys, sams, _ = query_points.shape 
-        inputs_flat = rearrange(query_points, 'rys sams d -> (rys sams) d')
+        inputs_flat = torch.reshape(query_points, [-1, query_points.shape[-1]])
+  
         embedded, uncert = self.embed_fn(inputs_flat)
+        if embed:
+            return torch.reshape(embedded, list(query_points.shape[:-1]) + [embedded.shape[-1]])
+
         embedded_pos = self.embedpos_fn(inputs_flat)
-        if self.uncertainty_flag == 'ensemble':
-            B, E, D = embedded.shape
-            embed_flat = rearrange(embedded, 'B E D -> (B E) D')
-            embe_pos_flat = repeat(embedded_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
-            out_flat = self.sdf_net(torch.cat([embed_flat, embe_pos_flat], dim=-1))
-            out = rearrange(out_flat, '(B E) D -> B E D', E=E)
-            out_mean = out.mean(dim=1)
-            sdf_var = out[..., :1].var(dim=1) #
-            uncert = sdf_var
-            out = out_mean
-        else:
-            out = self.sdf_net(torch.cat([embedded, embedded_pos], dim=-1))
-            
+        out = self.sdf_net(torch.cat([embedded, embedded_pos], dim=-1))
         sdf, geo_feat = out[..., :1], out[..., 1:]
-        sdf = rearrange(sdf, '(rys sams) d -> rys sams d', rys=rys, sams=sams)
+
+        sdf = torch.reshape(sdf, list(query_points.shape[:-1]))
         
         if return_uncert:
-            uncert = rearrange(uncert, '(rys sams) d -> rys sams d', rys=rys, sams=sams)
-            sdf = torch.cat([sdf, uncert], -1)  
+            uncert = torch.reshape(uncert, list(query_points.shape[:-1]))
+            sdf = torch.stack([sdf, uncert], -1)  # stack uncertainty to the sdf.
+
         if not return_geo:
             return sdf
-        geo_feat = rearrange(geo_feat,  '(rys sams) d -> rys sams d', rys=rys, sams=sams)
+        geo_feat = torch.reshape(geo_feat, list(query_points.shape[:-1]) + [geo_feat.shape[-1]])
 
         return sdf, geo_feat
     
-
     def query_color(self, query_points):
         return torch.sigmoid(self.query_color_sdf(query_points)[..., :3])
       
@@ -181,34 +179,29 @@ class JointEncoding(nn.Module):
         Query the color and sdf at query_points.
 
         Params:
-            query_points: [N_rays, N_samples, 3] or [N,3]
+            query_points: [N_rays, N_samples, 3]
         Returns:
             raw: [N_rays*N_samples, 4] or [N_rays*N_samples,5] with uncertainty
                  the first three CH are RGB, the fourth channel is sdf 
         '''
+        inputs_flat = torch.reshape(query_points, [-1, query_points.shape[-1]])
         
-        embed, uncert = self.embed_fn(query_points)
-        embe_pos = self.embedpos_fn(query_points)
+        embed, uncert = self.embed_fn(inputs_flat)
+        embe_pos = self.embedpos_fn(inputs_flat)
+        if not self.config['grid']['oneGrid']:
+            embed_color, _ = self.embed_fn_color(inputs_flat)
+            if self.uncertainty_flag != 'none':
+                return torch.cat(
+                    (self.decoder(embed, embe_pos, embed_color), uncert),
+                    dim=-1)
+            else:
+                return self.decoder(embed, embe_pos, embed_color)
         
-        if self.uncertainty_flag == 'ensemble':
-            B, E, D = embed.shape
-            embed_flat = rearrange(embed, 'B E D -> (B E) D')
-            embe_pos_flat = repeat(embe_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
-                
-            output_flat = self.decoder(embed_flat, embe_pos_flat)
-            
-            output = rearrange(output_flat, '(B E) D -> B E D', E=E)
-            output_mean = output.mean(dim=1)
-            sdf_variance = output[..., 3].var(dim=1, keepdim=True) # (N, 1)
-            uncert = sdf_variance
-            if self.do_update_uncert:
-                self.embed_fn.update_uncert_grid(query_points, uncert.detach())
-            
-            return torch.cat((output_mean, uncert), dim=-1)
-        elif self.uncertainty_flag == 'NARUTO':
+        if self.uncertainty_flag != 'none':
             return torch.cat(
-                        (self.decoder(embed, embe_pos), uncert),
-                        dim=-1)
+                    (self.decoder(embed, embe_pos), uncert),
+                    dim=-1)
+  
         else:    
             return self.decoder(embed, embe_pos)
     
@@ -373,7 +366,7 @@ class JointEncoding(nn.Module):
             "psnr": psnr,
         }
 
-        if self.uncertainty_flag == 'NARUTO':
+        if self.uncertainty_flag != 'none':
             uncert_map = rend_dict['uncert_map']
             assert uncert_map.min() > 0
             uncert_map = uncert_map[valid_depth_mask]

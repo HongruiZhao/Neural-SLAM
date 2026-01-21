@@ -53,7 +53,7 @@
             //"args": "${command:pickArgs}", // take input arguments 
             "args": [
                 "--config",
-                "configs/eval_lena.txt",
+                "configs/eval_NSLAM.txt",
             ],
             "stopOnEntry": true, // automatically stop the debugger on the first line,
             "justMyCode": true

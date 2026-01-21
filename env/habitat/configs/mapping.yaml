@@ -5,18 +5,20 @@ mapping:
   map_every: 10
   lr_uncert: 0.01
   first_mesh: False # don't save first mesh
-  
+  first_iters: 10
+  iters: 10
 mesh: 
   vis: 500000000 # don't save meshes 
-  save_uncert: False
+  save_uncert: True
 
 grid:
   enc: 'HashGrid'
   hash_size: 16
   voxel_color: 0.08
   voxel_sdf: 0.02
-  uncertainty: 'grid' # 'gird', 'tensor', or 'none'
+  uncertainty: 'ensemble' # 'NARUTO', 'tensor', 'ensemble', or 'none'
   voxel_uncert: 0.1
+  ensemble_size: 3
   
 cam: 
   crop_edge: 0

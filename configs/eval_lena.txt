@@ -30,6 +30,6 @@ use_deterministic_local = 0
 print_images = 1
 vis_type = 2 # 2 show GT map, 1 show predicted map
 dump_location = results/
-exp_name = Cantwell_Jan15
+exp_name = ensemble_Jan16
 
 

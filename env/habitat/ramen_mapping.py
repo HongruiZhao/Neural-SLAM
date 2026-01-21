@@ -145,7 +145,7 @@ class Mapping():
             loss += self.config['training']['smooth_weight'] * self.smoothness(self.config['training']['smooth_pts'], 
                                                                                   self.config['training']['smooth_vox'], 
                                                                                   margin=self.config['training']['smooth_margin'])
-        if uncert and (self.config['grid']['uncertainty'] != 'none') :
+        if uncert and (self.config['grid']['uncertainty'] == 'NARUTO') :
             loss += self.config['training']['uncert_weight'] * ret['uncert_loss']
 
         return loss             
@@ -217,7 +217,7 @@ class Mapping():
             pts_tcnn = (pts - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
         
 
-        sdf = self.model.query_sdf(pts_tcnn, embed=True)
+        sdf = self.model.query_sdf(pts_tcnn, smoothness=True)
         tv_x = torch.pow(sdf[1:,...]-sdf[:-1,...], 2).sum()
         tv_y = torch.pow(sdf[:,1:,...]-sdf[:,:-1,...], 2).sum()
         tv_z = torch.pow(sdf[:,:,1:,...]-sdf[:,:,:-1,...], 2).sum()
@@ -315,7 +315,7 @@ class Mapping():
         trainable_parameters = [{'params': self.model.decoder.parameters(), 'weight_decay': 1e-6, 'lr': self.config['mapping']['lr_decoder']},
                                     {'params': embed_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_embed']}]
             
-        if self.config['grid']['uncertainty'] != 'none':
+        if self.config['grid']['uncertainty'] == 'NARUTO':
             trainable_parameters.append({'params': uncert_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_uncert']})
 
         if not self.config['grid']['oneGrid']:
@@ -327,6 +327,9 @@ class Mapping():
     def save_mesh(self, i, voxel_size=0.05):
         mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', f'mesh_{self.scene_name}_{i}.ply')            
         
+        # Disable grid update when extracting mesh
+        self.model.do_update_uncert = False
+
         if self.config['mesh']['render_color']:
             color_func = self.model.render_surface_color
         else:
@@ -350,6 +353,8 @@ class Mapping():
                 voxel_size=voxel_size, 
                 render_uncert=True,
                 mesh_savepath=mesh_uncert_savepath)  
+        
+        self.model.do_update_uncert = True
 
 
 
