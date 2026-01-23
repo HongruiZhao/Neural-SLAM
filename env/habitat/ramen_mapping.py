@@ -256,14 +256,19 @@ class Mapping():
             # Sample rays with real frame ids
             # rays [bs, 7]
             # frame_ids [bs]
-            rays, ids = self.keyframeDatabase.sample_global_rays(self.config['mapping']['sample'])
+            if self.config['mapping']['replay']:
+                rays, ids = self.keyframeDatabase.sample_global_rays(self.config['mapping']['sample'])
 
-            #TODO: Checkpoint...
-            idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']),max(self.config['mapping']['sample'] // len(self.keyframeDatabase.frame_ids), self.config['mapping']['min_pixels_cur']))
-            current_rays_batch = current_rays[idx_cur, :]
+                #TODO: Checkpoint...
+                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']),max(self.config['mapping']['sample'] // len(self.keyframeDatabase.frame_ids), self.config['mapping']['min_pixels_cur']))
+                current_rays_batch = current_rays[idx_cur, :]
 
-            rays = torch.cat([rays, current_rays_batch], dim=0) # N, 7
-            ids_all = torch.cat([ids//self.config['mapping']['keyframe_every'], -torch.ones((len(idx_cur)))]).to(torch.int64)
+                rays = torch.cat([rays, current_rays_batch], dim=0) # N, 7
+                ids_all = torch.cat([ids//self.config['mapping']['keyframe_every'], -torch.ones((len(idx_cur)))]).to(torch.int64)
+            else:
+                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']), self.config['mapping']['sample'])
+                rays = current_rays[idx_cur, :]
+                ids_all = -torch.ones((len(idx_cur))).to(torch.int64)
 
 
             rays_d_cam = rays[..., :3].to(self.device)

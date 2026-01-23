@@ -1,4 +1,4 @@
-exp_names: ['saveMesh_Jan5']
+exp_names: ['ensemble_Cantwell_Jan22']
 episodes: ['1']
 threads: ['0']
 gt_path: '/home/hongrui/Datasets/habitat/scene_datasets/gibson'

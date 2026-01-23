@@ -93,6 +93,7 @@ def main():
     g_process_rewards = np.zeros((num_scenes))
     accumulated_ratio = np.zeros((num_scenes))
     all_accumulated_ratios = {}
+    uncertainty_list = {}
  
     episode_area_coverage = deque(maxlen=1000)
     per_step_area_coverage = deque(maxlen=1000)
@@ -326,6 +327,8 @@ def main():
 
     for ep_num in trange(num_episodes):
         all_accumulated_ratios[ep_num] = []
+        uncertainty_list[ep_num] = []
+
         if args.use_DD_PPO != 'none':
             l_policy.reset()
         for step in trange(args.max_episode_length):
@@ -501,6 +504,11 @@ def main():
                 all_accumulated_ratios[ep_num].append(accumulated_ratio.tolist())
                 done_ratio = accumulated_ratio * (1 - g_masks.cpu().numpy()) # only for done scenes 
                 accumulated_ratio *= g_masks.cpu().numpy() # set done scenes exp ratio to zero
+
+                if args.use_NeRF_mapping:
+                    uncertainty = np.asarray([infos[env_idx]['uncertainty'] for env_idx in range(num_scenes)]) 
+                    uncertainty_list[ep_num].append(uncertainty.tolist())
+
                 if np.sum(done_ratio) != 0:
                     for scene_ratio in done_ratio:
                         episode_area_coverage.append(scene_ratio) if scene_ratio != 0 else None
@@ -698,6 +706,9 @@ def main():
     if args.eval:
         with open(os.path.join(dump_dir, 'accumulated_ratios.json'), 'w') as f:
             json.dump(all_accumulated_ratios, f, indent=4)
+        if args.use_NeRF_mapping:
+            with open(os.path.join(dump_dir, 'uncertainty_history.json'), 'w') as f:
+                json.dump(uncertainty_list, f, indent=4)
 
 
 if __name__ == "__main__":

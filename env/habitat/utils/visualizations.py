@@ -74,7 +74,7 @@ def visualize(fig, ax,
         ax[1].imshow(grid, origin='lower') # to be right hand coordinate
         ax[1].set_title(title, fontsize=15)
 
-        ax[2].imshow(uncert_map, origin='lower', cmap='plasma') # to be right hand coordinate
+        ax[2].imshow(uncert_map, origin='lower', cmap='plasma', vmin=0, vmax=0.025) # to be right hand coordinate
         ax[2].set_title('Uncertainty_map', fontsize=15)
 
         ax[-1].clear()

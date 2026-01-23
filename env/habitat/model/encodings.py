@@ -40,7 +40,6 @@ class HashUncertainty(torch.nn.Module):
             )
             self.n_output_dims = self.embed.n_output_dims
 
-        
         self.get_uncert_grid(uncertainty_res)
 
 
@@ -52,7 +51,7 @@ class HashUncertainty(torch.nn.Module):
         elif self.uncertainty_flag == 'ensemble':
             self.register_buffer('uncert_grid', torch.zeros([Nx, Ny, Nz]).float())
             self.register_buffer('count_grid', torch.zeros([Nx, Ny, Nz]).float())
-            self.register_buffer('xyz_uncert', torch.ones([Nx, Ny, Nz]).float()*0.01)
+            self.xyz_uncert = torch.ones([Nx, Ny, Nz]).float()*0.05
         else:
             print('Create Hash Grid with No Uncertainty')
       
@@ -85,10 +84,26 @@ class HashUncertainty(torch.nn.Module):
         iy = indices[:, 1]
         iz = indices[:, 2]
         
-        self.uncert_grid[ix, iy, iz] += uncert_val.squeeze()
+        self.uncert_grid[ix, iy, iz] = uncert_val.squeeze() #TODO
         self.count_grid[ix, iy, iz] += torch.ones_like(uncert_val.squeeze())
-        self.xyz_uncert[ix, iy, iz] = (self.uncert_grid / self.count_grid)[ix, iy, iz]
 
+
+    def get_uncert_map(self,):
+        if self.uncertainty_flag == 'ensemble':
+            # self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
+            #                               (self.uncert_grid / self.count_grid).cpu(), 
+            #                                 self.xyz_uncert)
+            self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
+                                        (self.uncert_grid).cpu(), 
+                                        self.xyz_uncert) #TODO
+            uncert_map = self.xyz_uncert.numpy().mean(1)[::-1,::-1]
+            return uncert_map
+        elif self.uncertainty_flag == 'NARUTO':
+            uncert_map = self.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+            return uncert_map
+        else:
+            raise Exception("Unsupported Uncertainty")  
+        
 
     def forward(self, xyz_sampled):
         """

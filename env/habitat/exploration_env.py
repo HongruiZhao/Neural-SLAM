@@ -305,7 +305,7 @@ class Exploration_Env(habitat.RLEnv):
                                     step=self.NeRF_timestep,
                                     rays_d=self.rays_d)
                 self.nerf_mapper.run(self.NeRF_timestep, batch)
-                self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+                self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
                 self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).sum()))
                 if self.args.use_uncertainty_reward:
                     self.prev_uncert_sum = (self.uncert_map * self.explorable_map).sum()
@@ -424,7 +424,7 @@ class Exploration_Env(habitat.RLEnv):
                                         step=self.NeRF_timestep,
                                         rays_d=self.rays_d)
                 self.nerf_mapper.run(self.NeRF_timestep, batch) 
-            self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+            self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
             if self.NeRF_timestep % self.nerf_map_cfg['mapping']['map_every']==0:
                 self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).sum()))
         else:
@@ -481,6 +481,8 @@ class Exploration_Env(habitat.RLEnv):
         else:
             self.info['exp_reward'] = None
             self.info['exp_ratio'] = None
+        if args.use_NeRF_mapping:
+            self.info['uncertainty'] =  self.uncert_sum_history[-1][-1]
 
         self.save_position()
 

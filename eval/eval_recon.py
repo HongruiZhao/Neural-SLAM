@@ -74,7 +74,9 @@ def get_align_transformation(rec_meshfile, gt_meshfile, mesh_rec, initial_state)
     # rotation around robot frame to account for initial orientation
     eulers = trimesh.transformations.euler_from_quaternion(initial_state['rotation'], axes='sxyz')
     trans_step2 = trimesh.transformations.euler_matrix(eulers[0], -eulers[2], eulers[1], 'sxyz') # axes flip 
-    trans_step2[:3,:3] = trans_step2[:3,:3].T # required for Cantwell, but not for Eudora
+    # TODO: WTF?
+    trans_step2[:3,:3] = trans_step2[:3,:3].T # required for Cantwell
+    #trans_step2[:3,:3] = trans_step2[:3,:3] # for Eudora
 
     # translation to account for initial position
     agent_height = 1.25 # in m

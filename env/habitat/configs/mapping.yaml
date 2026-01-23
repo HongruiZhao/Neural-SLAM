@@ -7,18 +7,20 @@ mapping:
   first_mesh: False # don't save first mesh
   first_iters: 10
   iters: 10
+  replay: False
+  
 mesh: 
-  vis: 500000000 # don't save meshes 
-  save_uncert: True
+  vis: 50000000000 # don't save meshes 
+  save_uncert: False
 
 grid:
   enc: 'HashGrid'
   hash_size: 16
   voxel_color: 0.08
   voxel_sdf: 0.02
-  uncertainty: 'ensemble' # 'NARUTO', 'tensor', 'ensemble', or 'none'
+  uncertainty: 'ensemble' # 'NARUTO','ensemble', or 'none'
   voxel_uncert: 0.1
-  ensemble_size: 3
+  ensemble_size: 5
   
 cam: 
   crop_edge: 0
