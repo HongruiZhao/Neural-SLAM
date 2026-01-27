@@ -306,9 +306,9 @@ class Exploration_Env(habitat.RLEnv):
                                     rays_d=self.rays_d)
                 self.nerf_mapper.run(self.NeRF_timestep, batch)
                 self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
-                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).sum()))
+                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).mean()))
                 if self.args.use_uncertainty_reward:
-                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).sum()
+                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).mean()
             else:
                 self.uncert_map = None
             
@@ -426,7 +426,7 @@ class Exploration_Env(habitat.RLEnv):
                 self.nerf_mapper.run(self.NeRF_timestep, batch) 
             self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
             if self.NeRF_timestep % self.nerf_map_cfg['mapping']['map_every']==0:
-                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).sum()))
+                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).mean()))
         else:
             self.uncert_map = None 
 
@@ -793,7 +793,8 @@ class Exploration_Env(habitat.RLEnv):
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
-                        uncert_sum_history=self.uncert_sum_history)
+                        uncert_sum_history=self.uncert_sum_history,
+                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'])
 
         else: # Visualize ground-truth map and pose
             vis_grid = vu.get_colored_map(self.map,
@@ -813,7 +814,8 @@ class Exploration_Env(habitat.RLEnv):
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
-                        uncert_sum_history=self.uncert_sum_history)
+                        uncert_sum_history=self.uncert_sum_history,
+                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'])
 
 
     def _get_gt_map(self, full_map_size):

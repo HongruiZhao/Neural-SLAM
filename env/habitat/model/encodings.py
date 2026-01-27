@@ -7,10 +7,11 @@ class HashUncertainty(torch.nn.Module):
     def __init__(self, input_dim=3,
                 n_levels=16, level_dim=2, 
                 base_resolution=16, log2_hashmap_size=19, 
-                desired_resolution=512, uncertainty_flag='NARUTO', uncertainty_res=None,
-                ensemble_size=5):
+                desired_resolution=512, uncertainty_res=None,
+                cfg={}
+                ):
         super(HashUncertainty, self).__init__()
-        self.uncertainty_flag = uncertainty_flag
+        self.uncertainty_flag = cfg['grid'].get('uncertainty', 'ensemble')
         per_level_scale = np.exp2(np.log2(desired_resolution  / base_resolution) / (n_levels - 1))
         encoding_config = {
                 "otype": 'HashGrid',
@@ -24,14 +25,15 @@ class HashUncertainty(torch.nn.Module):
         if self.uncertainty_flag == 'ensemble':
             self.embed_ensemble = torch.nn.ModuleList()
             base_seed = torch.initial_seed()
-            for i in range(ensemble_size):
+            for i in range(cfg['grid'].get('ensemble_size', 5)):
                 self.embed_ensemble.append(tcnn.Encoding(
                     n_input_dims=input_dim,
                     encoding_config=encoding_config,
                     dtype=torch.float,
-                    seed=base_seed + 10 
+                    seed=base_seed + i 
                 ))
             self.n_output_dims = self.embed_ensemble[0].n_output_dims
+            self.uncertainty_init = cfg['grid'].get('initial_uncert', 1.0e-6)
         else:
             self.embed = tcnn.Encoding(
                 n_input_dims=input_dim,
@@ -51,7 +53,7 @@ class HashUncertainty(torch.nn.Module):
         elif self.uncertainty_flag == 'ensemble':
             self.register_buffer('uncert_grid', torch.zeros([Nx, Ny, Nz]).float())
             self.register_buffer('count_grid', torch.zeros([Nx, Ny, Nz]).float())
-            self.xyz_uncert = torch.ones([Nx, Ny, Nz]).float()*0.05
+            self.xyz_uncert = torch.ones([Nx, Ny, Nz]).float()*self.uncertainty_init
         else:
             print('Create Hash Grid with No Uncertainty')
       
@@ -90,12 +92,12 @@ class HashUncertainty(torch.nn.Module):
 
     def get_uncert_map(self,):
         if self.uncertainty_flag == 'ensemble':
-            # self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
-            #                               (self.uncert_grid / self.count_grid).cpu(), 
-            #                                 self.xyz_uncert)
             self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
-                                        (self.uncert_grid).cpu(), 
-                                        self.xyz_uncert) #TODO
+                                          (self.uncert_grid / self.count_grid).cpu(), 
+                                            self.xyz_uncert)
+            # self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
+            #                             (self.uncert_grid).cpu(), 
+            #                             self.xyz_uncert) #TODO: instant uncertainty?
             uncert_map = self.xyz_uncert.numpy().mean(1)[::-1,::-1]
             return uncert_map
         elif self.uncertainty_flag == 'NARUTO':
@@ -135,8 +137,8 @@ def get_encoder(encoding, input_dim=3,
                 n_levels=16, level_dim=2, 
                 base_resolution=16, log2_hashmap_size=19, 
                 desired_resolution=512,
-                uncertainty_flag='none', uncertainty_res=[100,100,100],
-                ensemble_size=5):
+                uncertainty_res=[100,100,100],
+                cfg={}):
     """
         @param uncertainty_flag: use what uncertainty
     """
@@ -165,8 +167,8 @@ def get_encoder(encoding, input_dim=3,
         embed = HashUncertainty(input_dim=input_dim, n_levels=n_levels, level_dim=level_dim,
                                 base_resolution=base_resolution, log2_hashmap_size=log2_hashmap_size,
                                 desired_resolution=desired_resolution,
-                                uncertainty_flag=uncertainty_flag, uncertainty_res=uncertainty_res,
-                                ensemble_size=ensemble_size)
+                                uncertainty_res=uncertainty_res,
+                                cfg=cfg)
         out_dim = embed.n_output_dims
 
     # Spherical harmonics encoding

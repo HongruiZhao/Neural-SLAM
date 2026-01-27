@@ -218,11 +218,16 @@ class Mapping():
         
 
         sdf = self.model.query_sdf(pts_tcnn, smoothness=True)
+        if sdf.ndim == 5: # Ensemble: x, y, z, E, d
+             E = sdf.shape[3]
+        else:
+             E = 1
+             
         tv_x = torch.pow(sdf[1:,...]-sdf[:-1,...], 2).sum()
         tv_y = torch.pow(sdf[:,1:,...]-sdf[:,:-1,...], 2).sum()
         tv_z = torch.pow(sdf[:,:,1:,...]-sdf[:,:,:-1,...], 2).sum()
 
-        loss = (tv_x + tv_y + tv_z)/ (sample_points**3)
+        loss = (tv_x + tv_y + tv_z)/ ((sample_points**3) * E)
 
         return loss
                
@@ -333,7 +338,7 @@ class Mapping():
         mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', f'mesh_{self.scene_name}_{i}.ply')            
         
         # Disable grid update when extracting mesh
-        self.model.do_update_uncert = False
+        self.model.if_extract_mesh = True
 
         if self.config['mesh']['render_color']:
             color_func = self.model.render_surface_color
@@ -359,7 +364,7 @@ class Mapping():
                 render_uncert=True,
                 mesh_savepath=mesh_uncert_savepath)  
         
-        self.model.do_update_uncert = True
+        self.model.if_extract_mesh = False
 
 
 

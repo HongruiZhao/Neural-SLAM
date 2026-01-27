@@ -1,17 +1,19 @@
 inherit_from: env/habitat/configs/replica.yaml
 mapping:
-  bound:  [[-10,10],[-1.5,4],[-10,10]] 
-  marching_cubes_bound:  [[-10,10],[-1.5,4],[-10,10]] 
+  # bound:  [[-10,10],[-1.5,4],[-10,10]] 
+  # marching_cubes_bound:  [[-10,10],[-1.5,4],[-10,10]] 
+  bound:  [[-10,10],[-1,1],[-10,10]] 
+  marching_cubes_bound:  [[-10,10],[-1,1],[-10,10]] 
   map_every: 10
   lr_uncert: 0.01
   first_mesh: False # don't save first mesh
   first_iters: 10
   iters: 10
   replay: False
-  
+
 mesh: 
-  vis: 50000000000 # don't save meshes 
-  save_uncert: False
+  vis: 999 # don't save meshes 
+  save_uncert: True
 
 grid:
   enc: 'HashGrid'
@@ -21,6 +23,7 @@ grid:
   uncertainty: 'ensemble' # 'NARUTO','ensemble', or 'none'
   voxel_uncert: 0.1
   ensemble_size: 5
+  initial_uncert: 1.0e-5 # 1e-3 is str, 1.0e-3 is float
   
 cam: 
   crop_edge: 0

@@ -2,18 +2,18 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import configargparse
 
+def main(args):
 
-def main():
-    
-    with open('ensemble_Eudora_Jan22.json', 'r') as f:
+    with open(f'{args.eval}.json', 'r') as f:
         eval_results = json.load(f)
     completion_ratio = eval_results['comp_ratio']
         
-    with open('../results/dump/ensemble_Eudora_Jan22_noReplay/accumulated_ratios.json', 'r') as f:
+    with open(f'../results/dump/{args.exp}/accumulated_ratios.json', 'r') as f:
         all_accumulated_ratios = json.load(f)
 
-    with open('../results/dump/ensemble_Eudora_Jan22_noReplay/uncertainty_history.json', 'r') as f:
+    with open(f'../results/dump/{args.exp}/uncertainty_history.json', 'r') as f:
         all_uncertainty = json.load(f)
 
     chosen_episode_id = '0' 
@@ -70,9 +70,13 @@ def main():
     lines3, labels3 = ax3.get_legend_handles_labels()
     ax2.legend(lines + lines2 + lines3, labels + labels2 + labels3, loc='upper right')
 
-    plt.title('Evaluation Metrics')
+    plt.title(f'{args.exp} Evaluation Metrics')
     fig.tight_layout()
     plt.savefig('evaluation_combined.jpg', dpi=500)
 
 if __name__ == "__main__":
-    main()
+    parser = configargparse.ArgumentParser()
+    parser.add_argument('--eval', type=str, default='ensemble_Cantwell_Jan22')
+    parser.add_argument('--exp', type=str)
+    args = parser.parse_args()
+    main(args)

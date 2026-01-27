@@ -15,7 +15,7 @@ class JointEncoding(nn.Module):
         self.config = config
         self.uncertainty_flag = config['grid']['uncertainty']
         self.bounding_box = bound_box
-        self.do_update_uncert = True
+        self.if_extract_mesh = False
         self.get_resolution()
         self.get_encoding(config)
         self.get_decoder(config)
@@ -50,11 +50,10 @@ class JointEncoding(nn.Module):
         self.embedpos_fn, self.input_ch_pos = get_encoder(config['pos']['enc'], n_bins=self.config['pos']['n_bins'])
 
         # Sparse parametric encoding (SDF)
-        ensemble_size = config['grid'].get('ensemble_size', 5)
         self.embed_fn, self.input_ch = get_encoder(config['grid']['enc'],log2_hashmap_size=config['grid']['hash_size'], 
                                                     desired_resolution=self.resolution_sdf,
-                                                    uncertainty_flag=self.uncertainty_flag, uncertainty_res=self.uncertainty_res,
-                                                    ensemble_size=ensemble_size)
+                                                    uncertainty_res=self.uncertainty_res,
+                                                    cfg=config)
 
 
     def get_decoder(self, config):
@@ -115,7 +114,7 @@ class JointEncoding(nn.Module):
 
         if self.uncertainty_flag != 'none':
             uncert = F.softplus(raw[...,4]) + 0.01 # 0.01 is the min uncertainty
-            uncert_map = torch.sum(weights*uncert*uncert, -1)
+            uncert_map = torch.sum(weights*uncert, -1)
         else:
             uncert_map = None
 
@@ -138,11 +137,15 @@ class JointEncoding(nn.Module):
             inputs_flat = rearrange(query_points, 'x y z d -> (x y z) d')
             embedded, uncert = self.embed_fn(inputs_flat)
             if self.uncertainty_flag == 'ensemble':
-                out = rearrange(embedded.mean(dim=1), '(x y z) d -> x y z d', x=x, y=y, z=z)
+                if self.if_extract_mesh:
+                    out = rearrange(embedded.mean(dim=1), '(x y z) d -> x y z d', x=x, y=y, z=z)
+                else:
+                    out = rearrange(embedded, '(x y z) E d -> x y z E d', x=x, y=y, z=z)
             else:
                 out = rearrange(embedded, '(x y z) d -> x y z d', x=x, y=y, z=z)
             return out
 
+        # if not smoothness, only used for extract_mesh 
         rys, sams, _ = query_points.shape 
         inputs_flat = rearrange(query_points, 'rys sams d -> (rys sams) d')
         embedded, uncert = self.embed_fn(inputs_flat)
@@ -183,8 +186,10 @@ class JointEncoding(nn.Module):
         Params:
             query_points: [N_rays, N_samples, 3] or [N,3]
         Returns:
-            raw: [N_rays*N_samples, 4] or [N_rays*N_samples,5] with uncertainty
-                 the first three CH are RGB, the fourth channel is sdf 
+            raw: 
+                - [N_rays*N_samples, 4] or [N_rays*N_samples,5] with uncertainty
+                  the first three CH are RGB, the fourth channel is sdf 
+                - For ensemble, it will be [N_rays*N_samples*N_ensemble, 4]
         '''
         
         embed, uncert = self.embed_fn(query_points)
@@ -195,16 +200,19 @@ class JointEncoding(nn.Module):
             embed_flat = rearrange(embed, 'B E D -> (B E) D')
             embe_pos_flat = repeat(embe_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
                 
-            output_flat = self.decoder(embed_flat, embe_pos_flat)
+            output_flat = self.decoder(embed_flat, embe_pos_flat) # D=4, (rgb, sdf)
             
             output = rearrange(output_flat, '(B E) D -> B E D', E=E)
-            output_mean = output.mean(dim=1)
-            sdf_variance = output[..., 3].var(dim=1, keepdim=True) # (N, 1)
-            uncert = sdf_variance
-            if self.do_update_uncert:
-                self.embed_fn.update_uncert_grid(query_points, uncert.detach())
             
-            return torch.cat((output_mean, uncert), dim=-1)
+            sdf_variance = output[..., 3].var(dim=1, keepdim=True) #(N,1) 
+            uncert = sdf_variance
+
+            if not self.if_extract_mesh:
+                self.embed_fn.update_uncert_grid(query_points, uncert.detach())
+                return output_flat
+            else:
+                output_mean = output.mean(dim=1)
+                return torch.cat((output_mean, uncert), dim=-1)
         elif self.uncertainty_flag == 'NARUTO':
             return torch.cat(
                         (self.decoder(embed, embe_pos), uncert),
@@ -212,6 +220,7 @@ class JointEncoding(nn.Module):
         else:    
             return self.decoder(embed, embe_pos)
     
+
     def run_network(self, inputs):
         """
         Run the network on a batch of inputs.
@@ -228,7 +237,13 @@ class JointEncoding(nn.Module):
             inputs_flat = (inputs_flat - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
  
         outputs_flat = batchify(self.query_color_sdf, None)(inputs_flat)
-        outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
+        
+        if self.uncertainty_flag == 'ensemble' and not self.if_extract_mesh:
+            E = outputs_flat.shape[0] // inputs_flat.shape[0]
+            outputs = rearrange(outputs_flat, '(rays sams E) c -> (rays E) sams c', 
+                                rays=inputs.shape[0], sams=inputs.shape[1], E=E)
+        else:
+            outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
 
         return outputs
     
@@ -285,6 +300,11 @@ class JointEncoding(nn.Module):
         # Run rendering pipeline
         pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
         raw = self.run_network(pts)
+
+        if self.uncertainty_flag == 'ensemble' and not self.if_extract_mesh:
+            E = raw.shape[0] // n_rays
+            z_vals = repeat(z_vals, 'r s -> (r E) s', E=E)
+
         rgb_map, disp_map, acc_map, weights, depth_map, depth_var, uncert_map = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
 
         # Importance sampling
@@ -342,6 +362,11 @@ class JointEncoding(nn.Module):
         if not self.training:
             return rend_dict
         
+        if self.uncertainty_flag == 'ensemble' and not self.if_extract_mesh:
+             E = rend_dict['rgb'].shape[0] // rays_o.shape[0]
+             target_rgb = repeat(target_rgb, 'b c -> (b E) c', E=E)
+             target_d = repeat(target_d, 'b c -> (b E) c', E=E)
+
         # Get depth and rgb weights for loss
         valid_depth_mask = (target_d.squeeze() > 0.) * (target_d.squeeze() < self.config['cam']['depth_trunc'])
         rgb_weight = valid_depth_mask.clone().unsqueeze(-1)
