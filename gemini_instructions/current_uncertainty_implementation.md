@@ -1,4 +1,5 @@
 # Current Implementation of Ensemble Uncertainty
+**Last Updated**: Monday, January 26, 2026
 
 ## Overview
 * The ensemble and the uncertainty grid are defined in the class `HashUncertainty` in @env/habitat/model/encodings.py.
