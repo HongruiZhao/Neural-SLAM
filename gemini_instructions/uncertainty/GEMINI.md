@@ -1,10 +1,26 @@
 # Current Implementation of Ensemble Uncertainty
 **Last Updated**: Monday, January 26, 2026
 
-## Overview
+## Theory for uncertainty 
+* We follow the paper "Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles" (@./gemini_instructions/uncertainty/deep_ensemble.pdf) for our ensemble uncertainty implementation.
+* **Empirical Variance Implementation**:
+    * According to the paper (Section 3.2), a common heuristic is to use an ensemble of NNs trained to minimize MSE.
+    * The uncertainty is estimated using the **empirical variance** of the ensemble predictions (epistemic uncertainty).
+    * Given $M$ ensemble members where each model $m$ predicts a value $\mu_{\theta_m}(x)$ (e.g., SDF or RGB value), the ensemble mean is $\mu_*(x) = \frac{1}{M} \sum_{m=1}^M \mu_{\theta_m}(x)$.
+    * The empirical variance is calculated as:
+      $$ \sigma^2_{emp}(x) = \frac{1}{M} \sum_{m=1}^M (\mu_{\theta_m}(x) - \mu_*(x))^2 $$
+    * This captures the disagreement among the ensemble members, which serves as a proxy for the model's uncertainty about the prediction.
+* **Training Methodology**:
+    * **Objective**: For the empirical variance approach, each network in the ensemble is trained independently to minimize the Mean Squared Error (MSE) (or similar reconstruction loss) on the training data.
+    * **Diversity**: Diversity among ensemble members is achieved through random initialization of the neural network parameters and the stochasticity of the training process (e.g., random data shuffling).
+    * *Note*: The paper also proposes a more advanced method using Negative Log Likelihood (NLL) and adversarial training to learn calibrated predictive uncertainty (including heteroscedastic noise), but our current implementation focuses on the simpler empirical variance from MSE-trained networks.
+* Currently, we rely solely on this empirical variance and do not explicitly model the heteroscedastic noise (learned variance $\sigma^2_{\theta_m}$) for each member.
+
+## Implementation Overview
 * The ensemble and the uncertainty grid are defined in the class `HashUncertainty` in @env/habitat/model/encodings.py.
 * The ensemble logic is handled in `JointEncoding` within @env/habitat/model/scene_rep.py.
 * A flag `self.if_extract_mesh` in `JointEncoding` controls the behavior between training (independent members) and inference (averaged output).
+
 
 ## Training Behavior (`if_extract_mesh = False`)
 * **Goal**: Train each member of the ensemble independently to preserve diversity.

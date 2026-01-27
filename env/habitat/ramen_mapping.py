@@ -217,15 +217,15 @@ class Mapping():
             pts_tcnn = (pts - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
         
 
-        sdf = self.model.query_sdf(pts_tcnn, smoothness=True)
-        if sdf.ndim == 5: # Ensemble: x, y, z, E, d
-             E = sdf.shape[3]
+        feat = self.model.query_sdf(pts_tcnn, smoothness=True)
+        if feat.ndim == 5: # Ensemble: x, y, z, E, d
+             E = feat.shape[3]
         else:
              E = 1
              
-        tv_x = torch.pow(sdf[1:,...]-sdf[:-1,...], 2).sum()
-        tv_y = torch.pow(sdf[:,1:,...]-sdf[:,:-1,...], 2).sum()
-        tv_z = torch.pow(sdf[:,:,1:,...]-sdf[:,:,:-1,...], 2).sum()
+        tv_x = torch.pow(feat[1:,...]-feat[:-1,...], 2).sum()
+        tv_y = torch.pow(feat[:,1:,...]-feat[:,:-1,...], 2).sum()
+        tv_z = torch.pow(feat[:,:,1:,...]-feat[:,:,:-1,...], 2).sum()
 
         loss = (tv_x + tv_y + tv_z)/ ((sample_points**3) * E)
 

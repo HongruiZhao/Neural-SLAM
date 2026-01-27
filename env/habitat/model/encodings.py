@@ -86,7 +86,7 @@ class HashUncertainty(torch.nn.Module):
         iy = indices[:, 1]
         iz = indices[:, 2]
         
-        self.uncert_grid[ix, iy, iz] = uncert_val.squeeze() #TODO
+        self.uncert_grid[ix, iy, iz] += uncert_val.squeeze() 
         self.count_grid[ix, iy, iz] += torch.ones_like(uncert_val.squeeze())
 
 

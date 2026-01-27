@@ -112,7 +112,7 @@ class JointEncoding(nn.Module):
         if white_bkgd:
             rgb_map = rgb_map + (1.-acc_map[...,None])
 
-        if self.uncertainty_flag != 'none':
+        if self.uncertainty_flag == 'NARUTO':
             uncert = F.softplus(raw[...,4]) + 0.01 # 0.01 is the min uncertainty
             uncert_map = torch.sum(weights*uncert, -1)
         else:

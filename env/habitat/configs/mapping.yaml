@@ -9,10 +9,10 @@ mapping:
   first_mesh: False # don't save first mesh
   first_iters: 10
   iters: 10
-  replay: False
+  replay: True
 
 mesh: 
-  vis: 999 # don't save meshes 
+  vis: 50000000000 # don't save meshes 
   save_uncert: True
 
 grid:
@@ -23,7 +23,7 @@ grid:
   uncertainty: 'ensemble' # 'NARUTO','ensemble', or 'none'
   voxel_uncert: 0.1
   ensemble_size: 5
-  initial_uncert: 1.0e-5 # 1e-3 is str, 1.0e-3 is float
+  initial_uncert: 1.0e-3 # 1e-3 is str, 1.0e-3 is float
   
 cam: 
   crop_edge: 0

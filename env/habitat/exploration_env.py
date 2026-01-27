@@ -794,7 +794,8 @@ class Exploration_Env(habitat.RLEnv):
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         uncert_sum_history=self.uncert_sum_history,
-                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'])
+                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
+                        gt_map=self.explorable_map)
 
         else: # Visualize ground-truth map and pose
             vis_grid = vu.get_colored_map(self.map,
@@ -815,7 +816,8 @@ class Exploration_Env(habitat.RLEnv):
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         uncert_sum_history=self.uncert_sum_history,
-                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'])
+                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
+                        gt_map=self.explorable_map)
 
 
     def _get_gt_map(self, full_map_size):
