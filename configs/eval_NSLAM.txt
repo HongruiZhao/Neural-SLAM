@@ -5,7 +5,7 @@ auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be gene
 num_processes = 1 #4 processes by default. used when auto_gpu_config is false
 max_episode_length = 1000 #1000 for default
 num_episodes = 1
-eval_scene_id = 392 # 392 for Eudora, 'no' for no specific scene 
+eval_scene_id = 639 # 392 for Eudora, 639 for Ribera,'no' for no specific scene 
 
 train_global = 0
 train_local = 0
@@ -29,4 +29,4 @@ use_deterministic_local = 0
 print_images = 1
 vis_type = 2 # 2 show GT map, 1 show predicted map
 dump_location = results/
-exp_name = ensemble_Eudora_Jan27
+exp_name = ensemble_Ribera_Jan27

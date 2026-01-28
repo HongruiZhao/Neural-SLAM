@@ -20,6 +20,7 @@
 * The ensemble and the uncertainty grid are defined in the class `HashUncertainty` in @env/habitat/model/encodings.py.
 * The ensemble logic is handled in `JointEncoding` within @env/habitat/model/scene_rep.py.
 * A flag `self.if_extract_mesh` in `JointEncoding` controls the behavior between training (independent members) and inference (averaged output).
+* A flag `multi_decoder` in `mapping.yaml` (under `grid`) toggles between using a shared decoder (False) or independent decoders for each ensemble member (True). When True, each member has its own `ColorSDFNet_v2`.
 
 
 ## Training Behavior (`if_extract_mesh = False`)

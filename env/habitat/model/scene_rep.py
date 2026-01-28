@@ -14,6 +14,7 @@ class JointEncoding(nn.Module):
         super(JointEncoding, self).__init__()
         self.config = config
         self.uncertainty_flag = config['grid']['uncertainty']
+        self.multi_decoder = config['grid'].get('multi_decoder', False)
         self.bounding_box = bound_box
         self.if_extract_mesh = False
         self.get_resolution()
@@ -60,9 +61,18 @@ class JointEncoding(nn.Module):
         '''
         Get the decoder of the scene representation
         '''
-        self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
-        self.color_net = batchify(self.decoder.color_net, None)
-        self.sdf_net = batchify(self.decoder.sdf_net, None)
+        if self.uncertainty_flag == 'ensemble' and self.multi_decoder:
+            base_seed = torch.initial_seed()
+            self.decoder = nn.ModuleList([
+                ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos, seed=base_seed + i)
+                for i in range(config['grid']['ensemble_size'])
+            ])
+            self.color_net = None 
+            self.sdf_net = None
+        else:
+            self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
+            self.color_net = batchify(self.decoder.color_net, None)
+            self.sdf_net = batchify(self.decoder.sdf_net, None)
 
     def sdf2weights(self, sdf, z_vals, args=None):
         '''
@@ -151,15 +161,29 @@ class JointEncoding(nn.Module):
         embedded, uncert = self.embed_fn(inputs_flat)
         embedded_pos = self.embedpos_fn(inputs_flat)
         if self.uncertainty_flag == 'ensemble':
-            B, E, D = embedded.shape
-            embed_flat = rearrange(embedded, 'B E D -> (B E) D')
-            embe_pos_flat = repeat(embedded_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
-            out_flat = self.sdf_net(torch.cat([embed_flat, embe_pos_flat], dim=-1))
-            out = rearrange(out_flat, '(B E) D -> B E D', E=E)
-            out_mean = out.mean(dim=1)
-            sdf_var = out[..., :1].var(dim=1) #
-            uncert = sdf_var
-            out = out_mean
+            if self.multi_decoder:
+                B, E, D = embedded.shape
+                outputs = []
+                for i in range(E):
+                    # Construct input for sdf_net
+                    inp = torch.cat([embedded[:, i, :], embedded_pos], dim=-1)
+                    out_i = batchify(self.decoder[i].sdf_net, None)(inp)
+                    outputs.append(out_i)
+                out = torch.stack(outputs, dim=1) # (B, E, D_out)
+                out_mean = out.mean(dim=1)
+                sdf_var = out[..., :1].var(dim=1)
+                uncert = sdf_var
+                out = out_mean
+            else:
+                B, E, D = embedded.shape
+                embed_flat = rearrange(embedded, 'B E D -> (B E) D')
+                embe_pos_flat = repeat(embedded_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
+                out_flat = self.sdf_net(torch.cat([embed_flat, embe_pos_flat], dim=-1))
+                out = rearrange(out_flat, '(B E) D -> B E D', E=E)
+                out_mean = out.mean(dim=1)
+                sdf_var = out[..., :1].var(dim=1) #
+                uncert = sdf_var
+                out = out_mean
         else:
             out = self.sdf_net(torch.cat([embedded, embedded_pos], dim=-1))
             
@@ -196,23 +220,44 @@ class JointEncoding(nn.Module):
         embe_pos = self.embedpos_fn(query_points)
         
         if self.uncertainty_flag == 'ensemble':
-            B, E, D = embed.shape
-            embed_flat = rearrange(embed, 'B E D -> (B E) D')
-            embe_pos_flat = repeat(embe_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
+            if self.multi_decoder:
+                B, E, D = embed.shape
+                outputs = []
+                for i in range(E):
+                    out_i = self.decoder[i](embed[:, i, :], embe_pos)
+                    outputs.append(out_i)
+                output = torch.stack(outputs, dim=1) # (B, E, 4)
                 
-            output_flat = self.decoder(embed_flat, embe_pos_flat) # D=4, (rgb, sdf)
-            
-            output = rearrange(output_flat, '(B E) D -> B E D', E=E)
-            
-            sdf_variance = output[..., 3].var(dim=1, keepdim=True) #(N,1) 
-            uncert = sdf_variance
+                output_flat = rearrange(output, 'B E C -> (B E) C')
+                
+                sdf_variance = output[..., 3].var(dim=1, keepdim=True) #(N,1) 
+                uncert = sdf_variance
 
-            if not self.if_extract_mesh:
-                self.embed_fn.update_uncert_grid(query_points, uncert.detach())
-                return output_flat
+                if not self.if_extract_mesh:
+                    self.embed_fn.update_uncert_grid(query_points, uncert.detach())
+                    return output_flat
+                else:
+                    output_mean = output.mean(dim=1)
+                    return torch.cat((output_mean, uncert), dim=-1)
+
             else:
-                output_mean = output.mean(dim=1)
-                return torch.cat((output_mean, uncert), dim=-1)
+                B, E, D = embed.shape
+                embed_flat = rearrange(embed, 'B E D -> (B E) D')
+                embe_pos_flat = repeat(embe_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
+                    
+                output_flat = self.decoder(embed_flat, embe_pos_flat) # D=4, (rgb, sdf)
+                
+                output = rearrange(output_flat, '(B E) D -> B E D', E=E)
+                
+                sdf_variance = output[..., 3].var(dim=1, keepdim=True) #(N,1) 
+                uncert = sdf_variance
+
+                if not self.if_extract_mesh:
+                    self.embed_fn.update_uncert_grid(query_points, uncert.detach())
+                    return output_flat
+                else:
+                    output_mean = output.mean(dim=1)
+                    return torch.cat((output_mean, uncert), dim=-1)
         elif self.uncertainty_flag == 'NARUTO':
             return torch.cat(
                         (self.decoder(embed, embe_pos), uncert),
