@@ -17,8 +17,10 @@
 * Currently, we rely solely on this empirical variance and do not explicitly model the heteroscedastic noise (learned variance $\sigma^2_{\theta_m}$) for each member.
 
 ## Implementation Overview
-* The ensemble and the uncertainty grid are defined in the class `HashUncertainty` in @env/habitat/model/encodings.py.
-* The ensemble logic is handled in `JointEncoding` within @env/habitat/model/scene_rep.py.
+* The ensemble and the uncertainty grid are defined in the class `HashUncertainty` in `env/habitat/model/encodings.py`.
+* The uncertainty grid uses an **Exponential Moving Average (EMA)** to fuse ensemble disagreement over time.
+    * **Update Rule**: $U_{t} = \alpha \cdot U_{obs} + (1 - \alpha) \cdot U_{t-1}$ (where $\alpha = 0.1$).
+* The ensemble logic is handled in `JointEncoding` within `env/habitat/model/scene_rep.py`.
 * A flag `self.if_extract_mesh` in `JointEncoding` controls the behavior between training (independent members) and inference (averaged output).
 * A flag `multi_decoder` in `mapping.yaml` (under `grid`) toggles between using a shared decoder (False) or independent decoders for each ensemble member (True). When True, each member has its own `ColorSDFNet_v2`.
 
@@ -29,7 +31,8 @@
     * `query_color_sdf` in @env/habitat/model/scene_rep.py returns concatenated outputs of shape `[N_rays * N_ensemble, N_samples, 4]`.
     * `target_rgb` and `target_d` in `forward()` are repeated `N_ensemble` times to match the concatenated output.
     * `z_vals` in `render_rays` are also repeated to match the expanded batch size.
-* **Uncertainty Update**: The uncertainty grid IS updated during training using the variance of the ensemble predictions computed internally in `query_color_sdf`.
+* **Uncertainty Update**: The uncertainty grid is updated using the variance of the ensemble predictions with an **Exponential Moving Average (EMA)** rule.
+    * **Conditional Update**: To ensure the ensemble provides stable uncertainty estimates, the grid is **only updated at the last iteration** of the mapping optimization loops (specifically in `first_frame_mapping` and `global_BA`). This prevents the uncertainty map from being polluted by unconverged predictions during the intermediate steps of optimization.
 * **Smoothness Loss**:
     * `query_sdf` returns expanded embeddings/SDFs.
     * `smoothness` in @env/habitat/ramen_mapping.py calculates Total Variation (TV) loss for each ensemble member separately and averages the results.

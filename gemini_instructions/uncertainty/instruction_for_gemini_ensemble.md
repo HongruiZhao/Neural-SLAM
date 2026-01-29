@@ -1,10 +1,10 @@
 # Instructions for code implementation
-* Extend our current ensemble implementation so that, instead of using a single decoder, creates a sepearte decoder for each memeber of the ensemble to ensure the full independence. 
-* Add a flag to switch between a single shared decoder and multiple decoders. Aftet the implemetation.
-* Add this flag to @./env/habitat/configs/mapping.yaml under `grid`.
-* Update @gemini_instructions/uncertainty/GEMINI.md file to reflect the new implementation.
-
-# Instructions for running and testing the implementation 
-* After finish the implementation, modify @./configs/eval_NSLAM.txt to give it a proper `exp_name`.
-* Run `python main.py --config ./configs/eval_NSLAM.txt`.
-* If any mistake arises, debug until the code can be excuted succesfully from start to finish. 
+* Idea: instead of calling `update_uncert_grid` every time when `query_color_sdf` is called in @env/habitat/model/scene_rep.py, only update the uncertainty grid when:
+    * At the last iteration of `first_frame_mapping` in @env/habitat/ramen_mapping.py
+    * At the last tieration of `global_BA` in @env/habitat/ramen_mapping.py.
+* Intuitions: 
+    * ensemble uncertainty is usally trained first and then used during the test time to provide uncertainty estimation.
+    * Since we are performing active mapping and we need real-time information of uncertainty to guide the policy, we cannot wait for the whole mapping process to end.
+    * But we should at least wait for each step of mapping to finish so that the ensemble can properly learn from the new observation images. 
+* You will first review if my idea of changing where the uncertainty should be updated is valid. Provide some research paper for reference if applicable. 
+* Once we agree upon it, go ahead and implement the code. 

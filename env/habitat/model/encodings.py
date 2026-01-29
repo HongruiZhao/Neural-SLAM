@@ -51,8 +51,7 @@ class HashUncertainty(torch.nn.Module):
             # Uncertainty initialize to 3
             self.xyz_uncert = torch.nn.parameter.Parameter(torch.ones([Nx, Ny, Nz], device="cuda").float() * 3)
         elif self.uncertainty_flag == 'ensemble':
-            self.register_buffer('uncert_grid', torch.zeros([Nx, Ny, Nz]).float())
-            self.register_buffer('count_grid', torch.zeros([Nx, Ny, Nz]).float())
+            self.register_buffer('uncert_grid', torch.ones([Nx, Ny, Nz]).float() * self.uncertainty_init)
             self.xyz_uncert = torch.ones([Nx, Ny, Nz]).float()*self.uncertainty_init
         else:
             print('Create Hash Grid with No Uncertainty')
@@ -68,11 +67,12 @@ class HashUncertainty(torch.nn.Module):
         return uncert.squeeze()[..., None]
     
 
-    def update_uncert_grid(self, xyz_norm, uncert_val):
+    def update_uncert_grid(self, xyz_norm, uncert_val, alpha=0.8):
         """
             for ensemble uncertainty 
             @param xyz_norm: (N,3) query points coordinate in [0, 1]
             @param uncert_val: (N,1) uncertainty value
+            @param alpha: EMA update rate
         """
         grid_size = torch.tensor(self.uncert_grid.shape).to(xyz_norm.device)
         indices = (xyz_norm * (grid_size - 1)).long()
@@ -86,20 +86,14 @@ class HashUncertainty(torch.nn.Module):
         iy = indices[:, 1]
         iz = indices[:, 2]
         
-        self.uncert_grid[ix, iy, iz] += uncert_val.squeeze() 
-        self.count_grid[ix, iy, iz] += torch.ones_like(uncert_val.squeeze())
+        # EMA Update: U_t = alpha * U_obs + (1 - alpha) * U_{t-1}
+        self.uncert_grid[ix, iy, iz] = alpha * uncert_val.squeeze() + (1 - alpha) * self.uncert_grid[ix, iy, iz]
 
 
     def get_uncert_map(self,):
         if self.uncertainty_flag == 'ensemble':
-            self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
-                                          (self.uncert_grid / self.count_grid).cpu(), 
-                                            self.xyz_uncert)
-            # TODO: clamp uncertainy
-            self.xyz_uncert = torch.clamp(self.xyz_uncert,0, self.uncertainty_init) 
-            # self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
-            #                             (self.uncert_grid).cpu(), 
-            #                             self.xyz_uncert) #TODO: instant uncertainty?
+            self.xyz_uncert = self.uncert_grid.cpu()
+            self.xyz_uncert = torch.clamp(self.xyz_uncert, 0, self.uncertainty_init) 
             uncert_map = self.xyz_uncert.numpy().mean(1)[::-1,::-1]
             return uncert_map
         elif self.uncertainty_flag == 'NARUTO':

@@ -173,6 +173,9 @@ class Mapping():
 
         # Training
         for i in range(n_iters):
+            if i == n_iters - 1:
+                self.model.do_update_uncert = True
+
             self.map_optimizer.zero_grad()
             indice = self.select_samples(self.dataset_info['H'], self.dataset_info['W'], self.config['mapping']['sample'])
             
@@ -190,6 +193,8 @@ class Mapping():
             loss.backward()
 
             self.map_optimizer.step()
+        
+        self.model.do_update_uncert = False
 
         # First frame will always be a keyframe
         self.keyframeDatabase.add_keyframe(batch, filter_depth=self.config['mapping']['filter_depth'])
@@ -257,6 +262,8 @@ class Mapping():
 
         mean_total_loss = 0
         for i in range(self.config['mapping']['iters']):
+            if i == self.config['mapping']['iters'] - 1:
+                self.model.do_update_uncert = True
 
             # Sample rays with real frame ids
             # rays [bs, 7]
@@ -293,6 +300,8 @@ class Mapping():
             self.map_optimizer.step()
 
             mean_total_loss += loss.item()
+        
+        self.model.do_update_uncert = False
 
 
         # save loss info 
