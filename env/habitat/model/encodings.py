@@ -95,6 +95,8 @@ class HashUncertainty(torch.nn.Module):
             self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
                                           (self.uncert_grid / self.count_grid).cpu(), 
                                             self.xyz_uncert)
+            # TODO: clamp uncertainy
+            self.xyz_uncert = torch.clamp(self.xyz_uncert,0, self.uncertainty_init) 
             # self.xyz_uncert = torch.where((self.count_grid>0).cpu(), 
             #                             (self.uncert_grid).cpu(), 
             #                             self.xyz_uncert) #TODO: instant uncertainty?

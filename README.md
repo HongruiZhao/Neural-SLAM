@@ -1,4 +1,27 @@
-# README
+# LUNA: Learning with Uncertainty to Perform Neural Active Mapping
+
+<p align="center">
+  <img src="https://brand.illinois.edu/wp-content/uploads/2024/02/Color-Variation-Orange-Block-I-Blue-Background-1.png" width="75" />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT8jIgqKkbqA8jL_rzz8-x-MM05TtjfmVFuLQ&s" width="75" />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQvXarWL-vU2OWNMtGfRYyP7L0C-GLTePn4bw&s" width="75" />
+</p>
+
+
+
+## Table of Contents
+- [Install](#install)
+    - [Install habitat sim from source](#install-habitat-sim-from-source)
+    - [Install habitat lab and habitat baseline](#install-habitat-lab-and-habitat-baseline)
+    - [Install packages for lena](#install-packages-for-lena)
+- [Download Gibson dataset](#download-gibson-dataset)
+- [Run](#run)
+    - [Run for training and evaluation](#run-for-training-and-evaluation)
+    - [Running a Specific Scene for Evaluation](#running-a-specific-scene-for-evaluation)
+- [Ensemble Uncertainty](#ensemble-uncertainty)
+- [Automated Evaluation and Plotting](#automated-evaluation-and-plotting)
+- [Code structure](#code-structure)
 
 # Install
 
@@ -82,6 +105,7 @@ unzip -q pointnav_gibson_v1.zip
 
 # Run
 
+## Run for training and evaluation
 - To run training with the baseline method ([active neural slam](https://arxiv.org/abs/2004.05155))
 
 ```bash
@@ -118,6 +142,31 @@ Then, run the evaluation using that config file:
 python main.py --config ./configs/eval_lena.txt
 ```
 Replace `YOUR_EPISODE_ID` with the desired `episode_id` from the `val_episodes.json` file.
+
+
+# Ensemble Uncertainty
+
+This project implements predictive uncertainty estimation using **Deep Ensembles**. The uncertainty is estimated using the empirical variance (epistemic uncertainty) of predictions from multiple independently trained neural networks. This captures disagreement among ensemble members, serving as a proxy for the model's uncertainty.
+
+For a detailed explanation of the theory, implementation details (such as training vs. inference behavior), and key files involved, please refer to [gemini_instructions/uncertainty/GEMINI.md](gemini_instructions/uncertainty/GEMINI.md).
+
+# Automated Evaluation and Plotting
+
+* To automatically evaluate the reconstruction quality (accuracy, completion, and completion ratio) for a series of meshes, run the script below. 
+    * This script will cull occluded parts of the meshes (unless `--skip_cull` is used), compare them against the ground truth, and save the metrics to `eval/evaluation_results.json`.
+    * To have meshed saved when running `main.py`, change `[mesh][vis]` in `env/habitat/configs/mapping.yaml`. `[mesh][vis]=10` means saving a mesh every 10 iterations. 
+
+    ```bash
+    python eval/auto_eval.py --config eval/eval_basic.yaml
+    ```
+
+* To plot the evaluation results against uncertainty and scene coverage, run the code below.
+    * Replace `<experiment_name>` with the experiment name (folder name inside `results/dump/`). This generates `evaluation_combined.jpg`.
+    ```bash
+    cd eval
+    python plot_eval_results.py --eval evaluation_results --exp <experiment_name>
+    ```
+
 
 # Code structure
 - You can find global policy, path planner, and local policy starting from `main.py` .

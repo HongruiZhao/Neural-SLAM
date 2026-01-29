@@ -381,6 +381,9 @@ def main():
 
             # ------------------------------------------------------------------
             # Env step
+            #l_action *= 0 # TODO: DON't MOVE!
+            # if step < 1000:
+            #     l_action = l_action*0 + 3 # TODO: spinnnnnnn right
             obs, rew, done, infos = envs.step(l_action)
 
             l_masks = torch.FloatTensor([0 if x else 1
