@@ -144,7 +144,7 @@ def get_args():
                             perform between each global instruction""")
     parser.add_argument('--local_hidden_size', type=int, default=512,
                         help='local_hidden_size')
-    parser.add_argument('--short_goal_dist', type=int, default=1,
+    parser.add_argument('--short_goal_dist', type=int, default=5,
                         help="""Maximum distance between the agent
                                 and the short term goal""")
     parser.add_argument('--local_policy_update_freq', type=int, default=5)
@@ -192,11 +192,26 @@ def get_args():
                         help='num of heads of tensor transfomer')
     parser.add_argument('--tf_dim_head', type=int, default=64,
                         help='dim of heads of tensor transfomer')
+    parser.add_argument('--output_debug_env', type=int, default=0)
+    parser.add_argument('--use_ffm_planner', type=int, default=0)
     parser.add_argument('--use_uncertainty_reward', type=int, default=0,
                         help='use uncertainty reduction as reward')
 
-
-
+    # heuristic type and parameters
+    parser.add_argument('--heuristic_strategy', type=str, default="probe",
+                        help='decide between different heuristic types: \
+                            none=>no heuristic \
+                            base=>turn right and step forward \
+                            probe=>simulate sliding, keep turning until the agent can move forward')
+        # base heuristic parameters
+    parser.add_argument('--stuck_limit_no_steps', type=int, default=40, 
+                        help='number of steps wihtout forward movement until an agent is considered stuck')
+    parser.add_argument('--stuck_limit_no_turns', type=int, default=5, 
+                        help='number of steps without turning until an agent is considered stuck, should be lower than no steps')
+    parser.add_argument('--heuristic_turn_steps', type=int, default=2, 
+                        help='number of steps to turn when stuck')
+    parser.add_argument('--heuristic_forward_steps', type=int, default=3, 
+                        help='number of steps to turn when stuck')
 
     # parse arguments
     args = parser.parse_args()
@@ -284,5 +299,7 @@ def get_args():
         args.num_mini_batch = args.num_processes // 2
     else:
         args.num_mini_batch = int(args.num_mini_batch)
+
+    assert args.stuck_limit_no_turns < args.stuck_limit_no_steps
 
     return args

@@ -95,6 +95,14 @@ def construct_envs(args):
 
         args_list.append(args)
 
+    if args.output_debug_env == 1:
+        # print("args_list zero", args_list[0])
+        # print("env_config zero", env_configs[0])
+        # print("baseline_config zero", baseline_configs[0])
+        print("Creating single debug env for visualization")
+        envs = make_env_fn(args_list[0], env_configs[0], baseline_configs[0], 0)  # test single env creation
+        envs.num_envs = 1
+
     if args.debug:
         envs = habitat.ThreadedVectorEnv(
             make_env_fn=make_env_fn,

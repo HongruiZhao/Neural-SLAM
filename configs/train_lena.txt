@@ -1,5 +1,5 @@
 auto_gpu_config = 0
-num_processes = 8
+num_processes = 1
 debug = 0
 max_episode_length = 1000 #1000 for default
 num_episodes =  2500 # 1250 

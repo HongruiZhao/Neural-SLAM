@@ -34,6 +34,9 @@ from torch.utils.tensorboard import SummaryWriter
 # for neural implicit mapping 
 from env.habitat.exploration_env import load_config 
 
+# heuristic imports
+from utils.heuristics import HeuristicTracker
+
 args = get_args()
 
 np.random.seed(args.seed)
@@ -99,7 +102,7 @@ def main():
     per_step_area_coverage = deque(maxlen=1000)
 
     # Starting environments
-    torch.set_num_threads(1)
+    # torch.set_num_threads(1)
     """ 
         create envs
         all the 'computing map for test', semantic warning, 
@@ -197,7 +200,7 @@ def main():
                                         }).to(device)
     elif args.global_arch == 'lena':
         g_policy = RL_Policy(g_observation_space.shape, g_action_space,
-                            model_type='NeuralSLAM',
+                            model_type='lena',
                             base_kwargs={'recurrent': args.use_recurrent_global,
                                         'hidden_size': g_hidden_size,
                                         'downscaling': args.global_downscaling
@@ -325,6 +328,9 @@ def main():
 
     torch.set_grad_enabled(False)
 
+    # Initialize variables to check for stuck agents
+    heuristic_tracker = HeuristicTracker(args, num_scenes)
+
     for ep_num in trange(num_episodes):
         all_accumulated_ratios[ep_num] = []
         uncertainty_list[ep_num] = []
@@ -338,46 +344,75 @@ def main():
             l_step = step % args.num_local_steps
 
             # ------------------------------------------------------------------
-            # Local Planner and Policy 
-            if args.use_DD_PPO == 'none':
-                output = run_local_planner(num_scenes, 
-                        global_goals, global_input, planner_pose_inputs,
-                        envs)
-
-                del last_obs
-                last_obs = obs.detach()
-                local_masks = l_masks
-                local_goals = output[:, :-1].to(device).long()
-
-                if args.train_local:
-                    torch.set_grad_enabled(True)
-
-                action, action_prob, local_rec_states = l_policy(
-                    obs,
-                    local_rec_states,
-                    local_masks,
-                    extras=local_goals,
-                )
-
-                if args.train_local:
-                    action_target = output[:, -1].long().to(device)
-                    policy_loss += nn.CrossEntropyLoss()(action_prob, action_target)
-                    torch.set_grad_enabled(False)
-                l_action = action.cpu()
-                l_action += 1
-            else:
-                l_action = l_policy.plan(np.stack([infos[e]['depth'] for e in range(num_scenes)]) , 
-                                         global_goals, planner_pose_inputs, 
-                                         l_masks, step, 
-                                         args.map_resolution, device)
-                
-            # for visualization
-            if args.print_images:
-                visualize_map(  num_scenes, 
-                                global_goals, global_input, planner_pose_inputs,
-                                envs)
+            # Check for stuck agents
+            heuristic_tracker.update(local_pose)
 
             # ------------------------------------------------------------------
+            # Local Planner and Policy
+            # use ground truth local planner
+            if args.use_ffm_planner == 0:
+                if args.train_local:
+                    torch.set_grad_enabled(True)
+            
+                # train local planner 
+                if args.use_DD_PPO == 'none':
+                    output = run_local_planner(num_scenes, 
+                            global_goals, global_input, planner_pose_inputs,
+                            envs)
+
+                    del last_obs
+                    last_obs = obs.detach()
+                    local_masks = l_masks
+                    local_goals = output[:, :-1].to(device).long()
+
+                    if args.train_local:
+                        torch.set_grad_enabled(True)
+
+                    action, action_prob, local_rec_states = l_policy(
+                        obs,
+                        local_rec_states,
+                        local_masks,
+                        extras=local_goals,
+                    )
+                    if args.train_local:
+                        action_target = output[:, -1].long().to(device)
+                        policy_loss += nn.CrossEntropyLoss()(action_prob, action_target)
+                        torch.set_grad_enabled(False)
+                    l_action = action.cpu()
+                    l_action += 1
+
+                # train with DDPPO local policy
+                else:
+                    assert type(l_policy) == DdppoPolicy
+                    l_action = l_policy.plan(np.stack([infos[e]['depth'] for e in range(num_scenes)]) , 
+                                            global_goals, planner_pose_inputs, 
+                                            l_masks, step, 
+                                            args.map_resolution, device)
+                    
+            # use ground truth local planner from NSLAM codebase
+            else:
+                with torch.no_grad():
+                    output = run_local_planner(num_scenes, 
+                                global_goals, global_input, planner_pose_inputs,
+                                envs)
+                    l_action = output[:,2].cpu().long()    
+            
+            # for visualization
+            if args.print_images:
+                visualize_map(num_scenes, 
+                              global_goals, global_input, planner_pose_inputs,
+                              envs, heuristic=heuristic_tracker._get_stuck())
+
+            # --------------------------------------------------------------
+            # Apply heuristics
+
+            print("Local Action: ", l_action, l_action.shape)
+            heuristic_actions = heuristic_tracker.get_heuristic_actions(local_pose)
+            for i, a in enumerate(heuristic_actions):
+                if a and a != -1:
+                    print("Heuristic Action, ", a, " applied for agent ", i)
+                    l_action[i][0] = a
+            print("Modified Action: ", l_action, l_action.shape)
 
             # ------------------------------------------------------------------
             # Env step
@@ -715,4 +750,5 @@ def main():
 
 
 if __name__ == "__main__":
+    print("Starting Neural SLAM Training")
     main()
