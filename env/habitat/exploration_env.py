@@ -891,7 +891,7 @@ class Exploration_Env(habitat.RLEnv):
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
-                        heuristic_active=heuristic_active)
+                        heuristic_active=heuristic_active,
                         uncert_sum_history=self.uncert_sum_history,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
                         gt_map=self.explorable_map)
@@ -914,7 +914,7 @@ class Exploration_Env(habitat.RLEnv):
                         dump_dir, self.rank, self.episode_no,
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
-                        heuristic_active=heuristic_active)
+                        heuristic_active=heuristic_active,
                         uncert_sum_history=self.uncert_sum_history,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
                         gt_map=self.explorable_map)
