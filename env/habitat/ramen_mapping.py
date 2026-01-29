@@ -18,11 +18,13 @@ from .utils.mapping_utils import coordinates, extract_mesh
 
 
 class Mapping():
-    def __init__(self, config, id, dataset_info):
+    def __init__(self, config, id, dataset_info, scene_name, initial_state):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.agent_id = id 
         self.dataset_info = dataset_info 
+        self.scene_name = scene_name
+        self.initial_state = initial_state
         save_path = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}')
         os.makedirs(save_path, exist_ok=True)
 
@@ -99,7 +101,8 @@ class Mapping():
         '''
         save_dict = {'pose': self.est_c2w_data,
                      'pose_rel': self.est_c2w_data_rel,
-                     'model': self.model.state_dict()}
+                     'model': self.model.state_dict(),
+                     'initial_state': self.initial_state}
         torch.save(save_dict, save_path)
         print('Save the NeRF checkpoint')
 
@@ -142,7 +145,7 @@ class Mapping():
             loss += self.config['training']['smooth_weight'] * self.smoothness(self.config['training']['smooth_pts'], 
                                                                                   self.config['training']['smooth_vox'], 
                                                                                   margin=self.config['training']['smooth_margin'])
-        if uncert and (self.config['grid']['uncertainty'] != 'none') :
+        if uncert and (self.config['grid']['uncertainty'] == 'NARUTO') :
             loss += self.config['training']['uncert_weight'] * ret['uncert_loss']
 
         return loss             
@@ -214,12 +217,17 @@ class Mapping():
             pts_tcnn = (pts - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
         
 
-        sdf = self.model.query_sdf(pts_tcnn, embed=True)
-        tv_x = torch.pow(sdf[1:,...]-sdf[:-1,...], 2).sum()
-        tv_y = torch.pow(sdf[:,1:,...]-sdf[:,:-1,...], 2).sum()
-        tv_z = torch.pow(sdf[:,:,1:,...]-sdf[:,:,:-1,...], 2).sum()
+        feat = self.model.query_sdf(pts_tcnn, smoothness=True)
+        if feat.ndim == 5: # Ensemble: x, y, z, E, d
+             E = feat.shape[3]
+        else:
+             E = 1
+             
+        tv_x = torch.pow(feat[1:,...]-feat[:-1,...], 2).sum()
+        tv_y = torch.pow(feat[:,1:,...]-feat[:,:-1,...], 2).sum()
+        tv_z = torch.pow(feat[:,:,1:,...]-feat[:,:,:-1,...], 2).sum()
 
-        loss = (tv_x + tv_y + tv_z)/ (sample_points**3)
+        loss = (tv_x + tv_y + tv_z)/ ((sample_points**3) * E)
 
         return loss
                
@@ -253,14 +261,19 @@ class Mapping():
             # Sample rays with real frame ids
             # rays [bs, 7]
             # frame_ids [bs]
-            rays, ids = self.keyframeDatabase.sample_global_rays(self.config['mapping']['sample'])
+            if self.config['mapping']['replay']:
+                rays, ids = self.keyframeDatabase.sample_global_rays(self.config['mapping']['sample'])
 
-            #TODO: Checkpoint...
-            idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']),max(self.config['mapping']['sample'] // len(self.keyframeDatabase.frame_ids), self.config['mapping']['min_pixels_cur']))
-            current_rays_batch = current_rays[idx_cur, :]
+                #TODO: Checkpoint...
+                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']),max(self.config['mapping']['sample'] // len(self.keyframeDatabase.frame_ids), self.config['mapping']['min_pixels_cur']))
+                current_rays_batch = current_rays[idx_cur, :]
 
-            rays = torch.cat([rays, current_rays_batch], dim=0) # N, 7
-            ids_all = torch.cat([ids//self.config['mapping']['keyframe_every'], -torch.ones((len(idx_cur)))]).to(torch.int64)
+                rays = torch.cat([rays, current_rays_batch], dim=0) # N, 7
+                ids_all = torch.cat([ids//self.config['mapping']['keyframe_every'], -torch.ones((len(idx_cur)))]).to(torch.int64)
+            else:
+                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']), self.config['mapping']['sample'])
+                rays = current_rays[idx_cur, :]
+                ids_all = -torch.ones((len(idx_cur))).to(torch.int64)
 
 
             rays_d_cam = rays[..., :3].to(self.device)
@@ -312,7 +325,7 @@ class Mapping():
         trainable_parameters = [{'params': self.model.decoder.parameters(), 'weight_decay': 1e-6, 'lr': self.config['mapping']['lr_decoder']},
                                     {'params': embed_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_embed']}]
             
-        if self.config['grid']['uncertainty'] != 'none':
+        if self.config['grid']['uncertainty'] == 'NARUTO':
             trainable_parameters.append({'params': uncert_params, 'eps': 1e-15, 'lr': self.config['mapping']['lr_uncert']})
 
         if not self.config['grid']['oneGrid']:
@@ -322,8 +335,11 @@ class Mapping():
         
     
     def save_mesh(self, i, voxel_size=0.05):
-        mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', 'mesh_track{}.ply'.format(i))            
+        mesh_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], f'agent_{self.agent_id}', f'mesh_{self.scene_name}_{i}.ply')            
         
+        # Disable grid update when extracting mesh
+        self.model.if_extract_mesh = True
+
         if self.config['mesh']['render_color']:
             color_func = self.model.render_surface_color
         else:
@@ -338,7 +354,7 @@ class Mapping():
         
         if self.config['mesh']['save_uncert'] and (self.config['grid']['uncertainty'] != 'none'):
             mesh_uncert_savepath = os.path.join(self.config['data']['output'], self.config['data']['exp_name'], 
-                                         f'agent_{self.agent_id}', 'mesh_uncert_track{}.ply'.format(i))
+                                         f'agent_{self.agent_id}', 'uncert_{}.ply'.format(i))
             extract_mesh(self.model.query_sdf, 
                 self.config, 
                 self.bounding_box, 
@@ -347,6 +363,8 @@ class Mapping():
                 voxel_size=voxel_size, 
                 render_uncert=True,
                 mesh_savepath=mesh_uncert_savepath)  
+        
+        self.model.if_extract_mesh = False
 
 
 

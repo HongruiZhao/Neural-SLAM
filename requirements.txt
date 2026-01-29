@@ -15,3 +15,4 @@ opencv-python==4.11.0.86
 pyyaml==6.0.2
 iopath==0.1.10
 einops==0.8.1 
+pyrender

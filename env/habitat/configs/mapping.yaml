@@ -1,22 +1,30 @@
 inherit_from: env/habitat/configs/replica.yaml
 mapping:
-  bound:  [[-10,10],[-1.5,4],[-10,10]] 
-  marching_cubes_bound:  [[-10,10],[-1.5,4],[-10,10]] 
+  # bound:  [[-10,10],[-1.5,4],[-10,10]] 
+  # marching_cubes_bound:  [[-10,10],[-1.5,4],[-10,10]] 
+  bound:  [[-10,10],[-1,1],[-10,10]] 
+  marching_cubes_bound:  [[-10,10],[-1,1],[-10,10]] 
   map_every: 10
   lr_uncert: 0.01
   first_mesh: False # don't save first mesh
-  
+  first_iters: 10
+  iters: 10
+  replay: True
 
 mesh: 
-  vis: 500000000 # don't save meshes 
+  vis: 50000000000 # don't save meshes 
+  save_uncert: True
 
 grid:
   enc: 'HashGrid'
   hash_size: 16
   voxel_color: 0.08
   voxel_sdf: 0.02
-  uncertainty: 'grid' # 'gird', 'tensor', or 'none'
+  uncertainty: 'ensemble' # 'NARUTO','ensemble', or 'none'
   voxel_uncert: 0.1
+  ensemble_size: 5
+  initial_uncert: 1.0e-2 # 1e-3 is str, 1.0e-3 is float
+  multi_decoder: True
   
 cam: 
   crop_edge: 0
@@ -27,7 +35,7 @@ cam:
 
 data:
   output: results/mapping
-  exp_name: train_uncert_Oct19
+  exp_name: bruh
 
 training:
   rgb_weight: 5.0 #5.0 by default

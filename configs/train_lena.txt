@@ -2,7 +2,7 @@ auto_gpu_config = 0
 num_processes = 1
 debug = 0
 max_episode_length = 1000 #1000 for default
-num_episodes = 1250 # 1000000 by default
+num_episodes =  2500 # 1250 
 
 train_local = 0
 train_slam = 0
@@ -15,6 +15,9 @@ load_slam = pretrained_models/model_best.slam
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
 
 global_arch = lena
+use_NeRF_mapping = 1
+use_uncertainty_reward = 1
+
 num_global_steps = 40 # default 40
 num_mini_batch = 32 # default 32
 
@@ -24,5 +27,5 @@ collision_threshold = 0.001
 obstacle_boundary = 20 # default 5
 use_deterministic_local = 0
 
-dump_location = /p/cral/aneesh/exp_thread_results/
-exp_name = train_lena_Nov16
+dump_location = results/
+exp_name = train_lena_uncertR_Dec2

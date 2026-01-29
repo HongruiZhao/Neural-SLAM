@@ -66,6 +66,9 @@ def get_args():
     parser.add_argument('--print_images', type=int, default=0,
                         help='1: save visualization as images')
     parser.add_argument('--save_trajectory_data', type=str, default="0")
+    parser.add_argument('--eval_scene_id', type=str, default="no",
+                        help="""scene id for evaluation""")
+
 
     # Environment, dataset and episode specifications
     parser.add_argument('-efw', '--env_frame_width', type=int, default=256,
@@ -94,6 +97,9 @@ def get_args():
                         help="horizontal field of view in degrees")
     parser.add_argument('--randomize_env_every', type=int, default=500,
                         help="randomize scene in a thread every k episodes")
+    parser.add_argument('--use_NeRF_mapping', type=int, default=0,
+                        help='enable neural implicit mapping')
+    
     ## Global Policy RL PPO Hyperparameters
     parser.add_argument('--global_lr', type=float, default=2.5e-5,
                         help='global learning rate (default: 2.5e-5)')
@@ -125,6 +131,10 @@ def get_args():
                         help='ppo clip parameter (default: 0.2)')
     parser.add_argument('--use_recurrent_global', type=int, default=0,
                         help='use a recurrent global policy')
+    parser.add_argument("--global_arch", type=str,
+                    default="NeuralSLAM",
+                    help="what architecture to use for global policy.\
+                    'NeuralSLAM' or 'lena'.")
 
     # Local Policy
     parser.add_argument('--local_optimizer', type=str,
@@ -172,10 +182,6 @@ def get_args():
     parser.add_argument('--debug', type=int, default=0,
                         help='if enter debug mode(default: 0)')
     # for active neural implicit mapping 
-    parser.add_argument("--global_arch", type=str,
-                        default="NeuralSLAM",
-                        help="what architecture to use for global policy.\
-                        'NeuralSLAM' or 'lena'.")
     parser.add_argument('--tf_attn_dim', type=int, default=128,
                         help='attention dimension of tensor transfomer')
     parser.add_argument('--tf_out_dim', type=int, default=16,
@@ -188,6 +194,8 @@ def get_args():
                         help='dim of heads of tensor transfomer')
     parser.add_argument('--output_debug_env', type=int, default=0)
     parser.add_argument('--use_ffm_planner', type=int, default=0)
+    parser.add_argument('--use_uncertainty_reward', type=int, default=0,
+                        help='use uncertainty reduction as reward')
 
     # heuristic type and parameters
     parser.add_argument('--heuristic_strategy', type=str, default="probe",
@@ -208,6 +216,9 @@ def get_args():
     # parse arguments
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
+
+    if args.global_arch == 'lena' or args.use_uncertainty_reward:
+        args.use_NeRF_mapping = 1
 
     if args.cuda:
         if args.auto_gpu_config:

@@ -6,13 +6,14 @@ import tinycudann as tcnn
 
 class ColorNet(nn.Module):
     def __init__(self, config, input_ch=4, geo_feat_dim=15, 
-                hidden_dim_color=64, num_layers_color=3):
+                hidden_dim_color=64, num_layers_color=3, seed=None):
         super(ColorNet, self).__init__()
         self.config = config
         self.input_ch = input_ch
         self.geo_feat_dim = geo_feat_dim
         self.hidden_dim_color = hidden_dim_color
         self.num_layers_color = num_layers_color
+        self.seed = seed
 
         self.model = self.get_model(config['decoder']['tcnn_network'])
     
@@ -33,8 +34,12 @@ class ColorNet(nn.Module):
                     "n_neurons": self.hidden_dim_color,
                     "n_hidden_layers": self.num_layers_color - 1,
                 },
+                seed=self.seed if self.seed is not None else 9982
                 #dtype=torch.float
             )
+
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
 
         color_net =  []
         for l in range(self.num_layers_color):
@@ -55,13 +60,14 @@ class ColorNet(nn.Module):
         return nn.Sequential(*nn.ModuleList(color_net))
 
 class SDFNet(nn.Module):
-    def __init__(self, config, input_ch=3, geo_feat_dim=15, hidden_dim=64, num_layers=2):
+    def __init__(self, config, input_ch=3, geo_feat_dim=15, hidden_dim=64, num_layers=2, seed=None):
         super(SDFNet, self).__init__()
         self.config = config
         self.input_ch = input_ch
         self.geo_feat_dim = geo_feat_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
+        self.seed = seed
 
         self.model = self.get_model(tcnn_network=config['decoder']['tcnn_network'])
     
@@ -86,9 +92,13 @@ class SDFNet(nn.Module):
                     "n_neurons": self.hidden_dim,
                     "n_hidden_layers": self.num_layers - 1,
                 },
+                seed=self.seed if self.seed is not None else 9982
                 #dtype=torch.float
             )
         else:
+            if self.seed is not None:
+                torch.manual_seed(self.seed)
+
             sdf_net = []
             for l in range(self.num_layers):
                 if l == 0:
@@ -111,19 +121,21 @@ class ColorSDFNet(nn.Module):
     '''
     Color grid + SDF grid
     '''
-    def __init__(self, config, input_ch=3, input_ch_color=3, input_ch_pos=12):
+    def __init__(self, config, input_ch=3, input_ch_color=3, input_ch_pos=12, seed=None):
         super(ColorSDFNet, self).__init__()
         self.config = config
         self.color_net = ColorNet(config, 
                 input_ch=input_ch_color+input_ch_pos, 
                 geo_feat_dim=config['decoder']['geo_feat_dim'], 
                 hidden_dim_color=config['decoder']['hidden_dim_color'], 
-                num_layers_color=config['decoder']['num_layers_color'])
+                num_layers_color=config['decoder']['num_layers_color'],
+                seed=seed)
         self.sdf_net = SDFNet(config,
                 input_ch=input_ch+input_ch_pos,
                 geo_feat_dim=config['decoder']['geo_feat_dim'],
                 hidden_dim=config['decoder']['hidden_dim'], 
-                num_layers=config['decoder']['num_layers'])
+                num_layers=config['decoder']['num_layers'],
+                seed=seed)
             
     def forward(self, embed, embed_pos, embed_color):
 
@@ -144,19 +156,21 @@ class ColorSDFNet_v2(nn.Module):
     '''
     No color grid
     '''
-    def __init__(self, config, input_ch=3, input_ch_pos=12):
+    def __init__(self, config, input_ch=3, input_ch_pos=12, seed=None):
         super(ColorSDFNet_v2, self).__init__()
         self.config = config
         self.color_net = ColorNet(config, 
                 input_ch=input_ch_pos, 
                 geo_feat_dim=config['decoder']['geo_feat_dim'], 
                 hidden_dim_color=config['decoder']['hidden_dim_color'], 
-                num_layers_color=config['decoder']['num_layers_color'])
+                num_layers_color=config['decoder']['num_layers_color'],
+                seed=seed)
         self.sdf_net = SDFNet(config,
                 input_ch=input_ch+input_ch_pos,
                 geo_feat_dim=config['decoder']['geo_feat_dim'],
                 hidden_dim=config['decoder']['hidden_dim'], 
-                num_layers=config['decoder']['num_layers'])
+                num_layers=config['decoder']['num_layers'],
+                seed=seed)
             
     def forward(self, embed, embed_pos):
 

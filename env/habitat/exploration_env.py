@@ -127,12 +127,16 @@ class Exploration_Env(habitat.RLEnv):
         #                                         facecolor="whitesmoke",
         #                                         num="Thread {}".format(rank))
         if args.print_images or args.visualize:
-            if args.global_arch == 'lena':
-                self.figure, self.ax = plt.subplots(1,3, figsize=(9*16/9, 6),
+            if args.use_NeRF_mapping:
+                self.figure = plt.figure(figsize=(9*16/9, 9),
                                     facecolor="whitesmoke",
                                     num="Thread {}".format(rank))
+                self.ax = [plt.subplot2grid((2, 3), (0, 0)),
+                           plt.subplot2grid((2, 3), (0, 1)),
+                           plt.subplot2grid((2, 3), (0, 2)),
+                           plt.subplot2grid((2, 3), (1, 0), colspan=3)]
             else:
-                self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
+              self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
                                         facecolor="whitesmoke",
                                         num="Thread {}".format(rank))
         self.args = args
@@ -170,6 +174,7 @@ class Exploration_Env(habitat.RLEnv):
 
         # for neural implicit mapping 
         self.nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
+        self.exp_name = args.exp_name
         fx, fy, cx, cy, self.img_H, self.img_W = get_camera_intrinsics(
             self.habitat_env.sim, 'depth')
         self.rays_d = get_camera_rays(self.img_H, self.img_W, fx, fy, cx, cy)
@@ -179,7 +184,6 @@ class Exploration_Env(habitat.RLEnv):
                         'num_rays_to_save':self.num_rays_to_save, 
                         'H':self.img_H, 'W':self.img_W }
         self.nerf_mapper = None # will get created at reset 
-        self.exp_name = self.nerf_map_cfg['data']['exp_name']
         self.q_initial = None # quat of cam to world at reset 
 
     def save_trajectory_data(self):
@@ -219,6 +223,7 @@ class Exploration_Env(habitat.RLEnv):
         self._previous_action = None
         self.trajectory_states = []
         self.accumulated_ratio = 0
+        self.uncert_sum_history = []
 
 
         if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
@@ -274,8 +279,17 @@ class Exploration_Env(habitat.RLEnv):
             fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
             
+            # Initialize variables
+            self.scene_name = self.habitat_env.current_episode.scene_id \
+                                .split('/')[-1].split('.')[0]
+            self.visited = np.zeros(self.map.shape)
+            self.visited_vis = np.zeros(self.map.shape)
+            self.visited_gt = np.zeros(self.map.shape)
+            self.collison_map = np.zeros(self.map.shape)
+            self.col_width = 1
+
             # Initialize neural implicit map
-            if args.global_arch == 'lena': 
+            if args.use_NeRF_mapping: 
                 self.nerf_map_cfg['mapping']['bound'] = \
                     [   [-self.map_size_cm/100, 0], 
                         [-1.5,4], 
@@ -285,8 +299,13 @@ class Exploration_Env(habitat.RLEnv):
                 self.nerf_map_cfg['grid']['voxel_uncert'] = args.map_resolution / 100 
                 self.nerf_map_cfg['data']['exp_name'] = \
                         self.exp_name + '_ep' + str(self.episode_no//2)
+                
+                agent_state = self.habitat_env.sim.get_agent_state(0)
+                initial_state = {'position':agent_state.position, 'rotation':agent_state.rotation}
+
                 self.nerf_mapper = Mapping(self.nerf_map_cfg,id=self.rank,
-                                        dataset_info=self.dataset_info)
+                                        dataset_info=self.dataset_info, 
+                                        scene_name=self.scene_name, initial_state=initial_state)
                 # first frame mapping 
                 batch = data_loading( obs['rgb'], obs['depth'][...,0],
                                     [ -self.curr_loc[1], 
@@ -296,23 +315,17 @@ class Exploration_Env(habitat.RLEnv):
                                     step=self.NeRF_timestep,
                                     rays_d=self.rays_d)
                 self.nerf_mapper.run(self.NeRF_timestep, batch)
-                self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+                self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
+                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).mean()))
+                if self.args.use_uncertainty_reward:
+                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).mean()
             else:
-                self.uncert_map = None 
+                self.uncert_map = None
             
             if self.args.debug:
                 plt.figure()
                 plt.imshow(self.explorable_map*3 + self.explored_map, cmap='viridis') # multiply with a random scalar to get three colors
                 plt.savefig('./debug/explore_overlap.png')
-
-            # Initialize variables
-            self.scene_name = self.habitat_env.current_episode.scene_id \
-                                .split('/')[-1].split('.')[0]
-            self.visited = np.zeros(self.map.shape)
-            self.visited_vis = np.zeros(self.map.shape)
-            self.visited_gt = np.zeros(self.map.shape)
-            self.collison_map = np.zeros(self.map.shape)
-            self.col_width = 1
 
             # Set info
             self.info = {
@@ -411,7 +424,7 @@ class Exploration_Env(habitat.RLEnv):
         fp_proj, self.map, fp_explored, self.explored_map = \
                 self.mapper.update_map(depth, mapper_gt_pose)
         
-        if args.global_arch == 'lena': 
+        if args.use_NeRF_mapping: 
             if np.any(obs['rgb']): # sometimes it may get a "black" images. only update NeRF with valid images 
                 self.NeRF_timestep += 1
                 # neural implicit mapping
@@ -423,7 +436,9 @@ class Exploration_Env(habitat.RLEnv):
                                         step=self.NeRF_timestep,
                                         rays_d=self.rays_d)
                 self.nerf_mapper.run(self.NeRF_timestep, batch) 
-            self.uncert_map = self.nerf_mapper.model.embed_fn.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]
+            self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
+            if self.NeRF_timestep % self.nerf_map_cfg['mapping']['map_every']==0:
+                self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).mean()))
         else:
             self.uncert_map = None 
 
@@ -478,6 +493,8 @@ class Exploration_Env(habitat.RLEnv):
         else:
             self.info['exp_reward'] = None
             self.info['exp_ratio'] = None
+        if args.use_NeRF_mapping:
+            self.info['uncertainty'] =  self.uncert_sum_history[-1][-1]
 
         self.save_position()
 
@@ -499,16 +516,28 @@ class Exploration_Env(habitat.RLEnv):
         return 0.
 
     def get_global_reward(self):
-        curr_explored = self.explored_map*self.explorable_map
-        curr_explored_area = curr_explored.sum()
+        if self.args.use_uncertainty_reward and self.uncert_map is not None:
+            current_uncert_sum = (self.uncert_map * self.explorable_map).sum()
+            m_reward = self.prev_uncert_sum - current_uncert_sum
 
-        reward_scale = self.explorable_map.sum()
-        m_reward = (curr_explored_area - self.prev_explored_area)*1.
-        m_ratio = m_reward/reward_scale
-        m_reward = m_reward * 25./10000. # converting to m^2
-        self.prev_explored_area = curr_explored_area
+            reward_scale = self.explorable_map.sum()
+            m_ratio = m_reward / reward_scale
+            
+            self.prev_uncert_sum = current_uncert_sum
 
-        m_reward *= 0.02 # Reward Scaling
+            m_reward *=  1e-4 # scaled to be similar to area coverage reward 
+
+        else:
+            curr_explored = self.explored_map*self.explorable_map
+            curr_explored_area = curr_explored.sum()
+
+            reward_scale = self.explorable_map.sum()
+            m_reward = (curr_explored_area - self.prev_explored_area)*1.
+            m_ratio = m_reward/reward_scale
+            m_reward = m_reward * 25./10000. # converting to m^2
+            self.prev_explored_area = curr_explored_area
+
+            m_reward *= 0.02 # Reward Scaling
 
         return m_reward, m_ratio
 
@@ -863,6 +892,9 @@ class Exploration_Env(habitat.RLEnv):
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         heuristic_active=heuristic_active)
+                        uncert_sum_history=self.uncert_sum_history,
+                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
+                        gt_map=self.explorable_map)
 
         else: # Visualize ground-truth map and pose
             vis_grid = vu.get_colored_map(self.map,
@@ -870,7 +902,7 @@ class Exploration_Env(habitat.RLEnv):
                             self.visited_gt,
                             self.visited_gt,
                             (goal[0]+gx1, goal[1]+gy1),
-                            stg,
+                            (stg[0]+gx1, stg[1]+gy1),
                             self.explored_map,
                             self.explorable_map,
                             self.map*self.explored_map)
@@ -883,6 +915,9 @@ class Exploration_Env(habitat.RLEnv):
                         self.timestep, args.visualize,
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         heuristic_active=heuristic_active)
+                        uncert_sum_history=self.uncert_sum_history,
+                        uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
+                        gt_map=self.explorable_map)
 
 
     def _get_gt_map(self, full_map_size):
