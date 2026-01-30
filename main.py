@@ -345,7 +345,8 @@ def main():
 
             # ------------------------------------------------------------------
             # Check for stuck agents
-            heuristic_tracker.update(local_pose)
+            if args.heuristic_strategy != 'none':
+                heuristic_tracker.update(local_pose)
 
             # ------------------------------------------------------------------
             # Local Planner and Policy
@@ -405,14 +406,11 @@ def main():
 
             # --------------------------------------------------------------
             # Apply heuristics
-
-            print("Local Action: ", l_action, l_action.shape)
-            heuristic_actions = heuristic_tracker.get_heuristic_actions(local_pose)
-            for i, a in enumerate(heuristic_actions):
-                if a and a != -1:
-                    print("Heuristic Action, ", a, " applied for agent ", i)
-                    l_action[i][0] = a
-            print("Modified Action: ", l_action, l_action.shape)
+            if args.heuristic_strategy != 'none':
+                heuristic_actions = heuristic_tracker.get_heuristic_actions(local_pose)
+                for i, a in enumerate(heuristic_actions):
+                    if a and a != -1:
+                        l_action[i][0] = a
 
             # ------------------------------------------------------------------
             # Env step

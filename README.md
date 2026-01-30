@@ -168,6 +168,20 @@ For a detailed explanation of the theory, implementation details (such as traini
     ```
 
 
+# Heuristic Tracker
+
+This project includes a heuristic tracker to detect and unstuck agents that are trapped in the environment (e.g., stuck against a wall or in a corner). The tracker monitors the agent's movement and rotation; if an agent fails to move or turn for a specified number of steps, it is considered "stuck," and a heuristic action sequence is triggered to free it.
+
+You can control this behavior using the `--heuristic_strategy` argument:
+*   `none` (default): No heuristic is applied. The agent relies solely on the policy.
+*   `base`: A simple strategy where the agent turns right and steps forward.
+*   `probe`: A more complex strategy where the agent simulates sliding and keeps turning until it can move forward.
+
+Example usage:
+```bash
+python main.py --config ./configs/train_NSLAM.txt --heuristic_strategy base
+```
+
 # Code structure
 - You can find global policy, path planner, and local policy starting from `main.py` .
 - The most important simulation environment file is `env/habitat/exploration_env.py` which defines the `step()` and `reset()` functions for each process.

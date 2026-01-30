@@ -25,13 +25,23 @@ class HashUncertainty(torch.nn.Module):
         if self.uncertainty_flag == 'ensemble':
             self.embed_ensemble = torch.nn.ModuleList()
             base_seed = torch.initial_seed()
+            custom_init = cfg['grid'].get('custom_init', False)
+            init_gain = cfg['grid'].get('init_gain', 1.0)
+
             for i in range(cfg['grid'].get('ensemble_size', 5)):
-                self.embed_ensemble.append(tcnn.Encoding(
+                enc = tcnn.Encoding(
                     n_input_dims=input_dim,
                     encoding_config=encoding_config,
                     dtype=torch.float,
                     seed=base_seed + i 
-                ))
+                )
+                if custom_init:
+                    for param in enc.parameters():
+                        if len(param.shape) == 1:
+                            torch.nn.init.xavier_normal_(param.view(-1, level_dim), gain=init_gain)
+                        else:
+                            torch.nn.init.xavier_normal_(param, gain=init_gain)
+                self.embed_ensemble.append(enc)
             self.n_output_dims = self.embed_ensemble[0].n_output_dims
             self.uncertainty_init = cfg['grid'].get('initial_uncert', 1.0e-6)
         else:
@@ -51,8 +61,12 @@ class HashUncertainty(torch.nn.Module):
             # Uncertainty initialize to 3
             self.xyz_uncert = torch.nn.parameter.Parameter(torch.ones([Nx, Ny, Nz], device="cuda").float() * 3)
         elif self.uncertainty_flag == 'ensemble':
-            self.register_buffer('uncert_grid', torch.ones([Nx, Ny, Nz]).float() * self.uncertainty_init)
-            self.xyz_uncert = torch.ones([Nx, Ny, Nz]).float()*self.uncertainty_init
+            if self.uncertainty_init is None:
+                self.initialized = False
+                self.register_buffer('xyz_uncert', torch.zeros([Nx, Ny, Nz]).float())
+            else:
+                self.initialized = True
+                self.register_buffer('xyz_uncert', torch.ones([Nx, Ny, Nz]).float() * self.uncertainty_init)
         else:
             print('Create Hash Grid with No Uncertainty')
       
@@ -74,7 +88,7 @@ class HashUncertainty(torch.nn.Module):
             @param uncert_val: (N,1) uncertainty value
             @param alpha: EMA update rate
         """
-        grid_size = torch.tensor(self.uncert_grid.shape).to(xyz_norm.device)
+        grid_size = torch.tensor(self.xyz_uncert.shape).to(xyz_norm.device)
         indices = (xyz_norm * (grid_size - 1)).long()
         
         # Clip to be safe
@@ -85,16 +99,23 @@ class HashUncertainty(torch.nn.Module):
         ix = indices[:, 0]
         iy = indices[:, 1]
         iz = indices[:, 2]
+
+        if not self.initialized:
+            max_var = uncert_val.max().item()
+            self.xyz_uncert.fill_(max_var)
+            self.uncertainty_init = max_var
+            self.initialized = True
         
         # EMA Update: U_t = alpha * U_obs + (1 - alpha) * U_{t-1}
-        self.uncert_grid[ix, iy, iz] = alpha * uncert_val.squeeze() + (1 - alpha) * self.uncert_grid[ix, iy, iz]
+        self.xyz_uncert[ix, iy, iz] = alpha * uncert_val.squeeze() + (1 - alpha) * self.xyz_uncert[ix, iy, iz]
 
 
     def get_uncert_map(self,):
         if self.uncertainty_flag == 'ensemble':
-            self.xyz_uncert = self.uncert_grid.cpu()
-            self.xyz_uncert = torch.clamp(self.xyz_uncert, 0, self.uncertainty_init) 
-            uncert_map = self.xyz_uncert.numpy().mean(1)[::-1,::-1]
+            xyz_uncert_cpu = self.xyz_uncert.cpu()
+            if self.uncertainty_init is not None:
+                xyz_uncert_cpu = torch.clamp(xyz_uncert_cpu, 0, self.uncertainty_init) 
+            uncert_map = xyz_uncert_cpu.numpy().mean(1)[::-1,::-1]
             return uncert_map
         elif self.uncertainty_flag == 'NARUTO':
             uncert_map = self.xyz_uncert.detach().cpu().numpy().mean(1).T[::-1,::-1]

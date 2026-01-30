@@ -18,6 +18,7 @@ class JointEncoding(nn.Module):
         self.bounding_box = bound_box
         self.if_extract_mesh = False
         self.do_update_uncert = False # Only update uncertainty when this flag is True
+        self.uncert_always_update = config['grid'].get('uncert_always_update', False)
         self.get_resolution()
         self.get_encoding(config)
         self.get_decoder(config)
@@ -235,7 +236,7 @@ class JointEncoding(nn.Module):
                 uncert = sdf_variance
 
                 if not self.if_extract_mesh:
-                    if self.do_update_uncert:
+                    if self.do_update_uncert or self.uncert_always_update:
                         self.embed_fn.update_uncert_grid(query_points, uncert.detach())
                     return output_flat
                 else:
@@ -255,7 +256,7 @@ class JointEncoding(nn.Module):
                 uncert = sdf_variance
 
                 if not self.if_extract_mesh:
-                    if self.do_update_uncert:
+                    if self.do_update_uncert or self.uncert_always_update:
                         self.embed_fn.update_uncert_grid(query_points, uncert.detach())
                     return output_flat
                 else:

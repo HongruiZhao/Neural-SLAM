@@ -34,7 +34,7 @@ def visualize(fig, ax,
               pos, gt_pos, 
               dump_dir, rank, ep_no, t,
               visualize, print_images, previous_action, accumulated_ratio,
-              heuristic_active=None):
+              heuristic_active=None,
               uncert_sum_history=None,
               uncert_init=1e-6,
               gt_map=None):

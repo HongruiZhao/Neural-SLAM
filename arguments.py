@@ -198,7 +198,7 @@ def get_args():
                         help='use uncertainty reduction as reward')
 
     # heuristic type and parameters
-    parser.add_argument('--heuristic_strategy', type=str, default="probe",
+    parser.add_argument('--heuristic_strategy', type=str, default="none",
                         help='decide between different heuristic types: \
                             none=>no heuristic \
                             base=>turn right and step forward \
