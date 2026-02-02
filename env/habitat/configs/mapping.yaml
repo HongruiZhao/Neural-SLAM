@@ -9,7 +9,7 @@ mapping:
   first_mesh: False # don't save first mesh
   first_iters: 10
   iters: 10
-  replay: True
+  replay: False
 
 mesh: 
   vis: 50000000000 # don't save meshes 
@@ -25,7 +25,7 @@ grid:
   ensemble_size: 5
   initial_uncert: null # 1e-3 is str, 1.0e-3 is float
   multi_decoder: True
-  uncert_always_update: True
+  uncert_always_update: False
   custom_init: True 
   init_gain: 5.0 # xavier normal gain, default 1.0
   

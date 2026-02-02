@@ -57,11 +57,12 @@ def main():
     if not os.path.exists("{}/images/".format(dump_dir)):
         os.makedirs("{}/images/".format(dump_dir))
 
-    logging.basicConfig(
-        filename=log_dir + 'train.log',
-        level=logging.INFO)
+    # logging.basicConfig(
+    #     filename=log_dir + 'train.log',
+    #     level=logging.INFO)
     print("Dumping at {}".format(log_dir))
-    logging.info(args)
+    # logging.info(args)
+    # print(args)
 
     # Setup tensorboard 
     writer = SummaryWriter("{}/tensorboard/{}/".format(args.dump_location, args.exp_name))

@@ -173,7 +173,7 @@ class Mapping():
 
         # Training
         for i in range(n_iters):
-            if i == n_iters - 1:
+            if i == 0:
                 self.model.do_update_uncert = True
 
             self.map_optimizer.zero_grad()
@@ -262,7 +262,7 @@ class Mapping():
 
         mean_total_loss = 0
         for i in range(self.config['mapping']['iters']):
-            if i == self.config['mapping']['iters'] - 1:
+            if i == 0:
                 self.model.do_update_uncert = True
 
             # Sample rays with real frame ids

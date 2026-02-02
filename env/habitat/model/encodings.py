@@ -81,7 +81,7 @@ class HashUncertainty(torch.nn.Module):
         return uncert.squeeze()[..., None]
     
 
-    def update_uncert_grid(self, xyz_norm, uncert_val, alpha=0.8):
+    def update_uncert_grid(self, xyz_norm, uncert_val, alpha=0.5):
         """
             for ensemble uncertainty 
             @param xyz_norm: (N,3) query points coordinate in [0, 1]
