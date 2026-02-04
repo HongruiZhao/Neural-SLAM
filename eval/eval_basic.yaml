@@ -1,4 +1,4 @@
-exp_names: ['ensemble_Cantwell_Jan22']
+exp_names: ['Feb2_yesReplay_sharedDecoder']
 episodes: ['1']
 threads: ['0']
 gt_path: '/home/hongrui/Datasets/habitat/scene_datasets/gibson'

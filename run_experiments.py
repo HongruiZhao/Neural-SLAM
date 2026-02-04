@@ -101,11 +101,13 @@ def main():
     base_global_config = 'configs/eval_NSLAM.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
     
-    exp_names = ['ensemble_Cantwell_EMA0.2_Jan30', 
-                 'ensemble_Eudora_EMA0.2_Jan30',
-                 'ensemble_Ribera_EMA0.2_Jan30',
+    exp_names = ['Feb2_noReplay', 
+                 'Feb2_yesReplay_sharedDecoder',
                 ]
-    eval_scene_id = ['no', '392', '639']
+    replay = [False, True]
+    samples = [2000, 1000]
+    multi_decoder = [True, False]
+    #eval_scene_id = ['no', '392', '639']
     
     experiments = []
     for i in range(len(exp_names)):
@@ -114,11 +116,14 @@ def main():
             "mapping_config_path": base_mapping_config,
             "global_overrides": {
                 "exp_name": exp_names[i],
-                "eval_scene_id": eval_scene_id[i]
+                "eval_scene_id": 'no'
             },
             "mapping_overrides": {
-                "grid": { "uncertainty": "ensemble" } 
-            }
+                "grid": { "uncertainty": "ensemble" } ,
+                "mesh": { "vis": 999},
+                "mapping":{'replay': replay[i], 'sample': samples[i]},
+                "grid": { "multi_decoder": multi_decoder[i]},
+            },
         })
 
     for exp in tqdm(experiments):

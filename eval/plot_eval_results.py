@@ -8,7 +8,7 @@ def main(args):
 
     with open(f'{args.eval}.json', 'r') as f:
         eval_results = json.load(f)
-    completion_ratio = eval_results['comp_ratio']
+    f1 = eval_results['f1']
         
     with open(f'../results/dump/{args.exp}/accumulated_ratios.json', 'r') as f:
         all_accumulated_ratios = json.load(f)
@@ -29,7 +29,7 @@ def main(args):
 
     # Create a DataFrame for correlation
     df = pd.DataFrame({
-        'Completion Ratio': completion_ratio,
+        'F1 (5cm)': f1,
         'Scene Coverage Ratio': interp_acc_ratio,
         'Uncertainty Ratio': -interp_uncertainty # negative because uncertainty decreases instead of increasing
     })
@@ -41,8 +41,8 @@ def main(args):
     # Plot completion ratio on the primary y-axis
     color = 'tab:red'
     ax1.set_xlabel('Step')
-    ax1.set_ylabel('Completion Ratio', color=color)
-    ax1.plot(steps_comp_ratio, completion_ratio, color=color, label='Completion Ratio')
+    ax1.set_ylabel('F1 (5cm)', color=color)
+    ax1.plot(steps_comp_ratio, f1, color=color, label='F1 (5cm)')
     ax1.tick_params(axis='y', labelcolor=color)
     ax1.invert_yaxis()
     ax1.set_xticks(np.arange(0, 1000, 50))
@@ -72,11 +72,11 @@ def main(args):
 
     plt.title(f'{args.exp} Evaluation Metrics')
     fig.tight_layout()
-    plt.savefig('evaluation_combined.jpg', dpi=500)
+    plt.savefig(f'eval_{args.exp}.jpg', dpi=500)
 
 if __name__ == "__main__":
     parser = configargparse.ArgumentParser()
-    parser.add_argument('--eval', type=str, default='ensemble_Cantwell_Jan22')
+    parser.add_argument('--eval', type=str, default='ensemble_Cantwell_Feb2')
     parser.add_argument('--exp', type=str)
     args = parser.parse_args()
     main(args)

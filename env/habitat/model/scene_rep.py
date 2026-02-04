@@ -205,12 +205,13 @@ class JointEncoding(nn.Module):
     def query_color(self, query_points):
         return torch.sigmoid(self.query_color_sdf(query_points)[..., :3])
       
-    def query_color_sdf(self, query_points):
+    def query_color_sdf(self, query_points, uncert_mask=None):
         '''
         Query the color and sdf at query_points.
 
         Params:
             query_points: [N_rays, N_samples, 3] or [N,3]
+            uncert_mask: [N_rays*N_samples] or None 
         Returns:
             raw: 
                 - [N_rays*N_samples, 4] or [N_rays*N_samples,5] with uncertainty
@@ -229,39 +230,31 @@ class JointEncoding(nn.Module):
                     out_i = self.decoder[i](embed[:, i, :], embe_pos)
                     outputs.append(out_i)
                 output = torch.stack(outputs, dim=1) # (B, E, 4)
-                
                 output_flat = rearrange(output, 'B E C -> (B E) C')
-                
-                sdf_variance = output[..., 3].var(dim=1, keepdim=True) #(N,1) 
-                uncert = sdf_variance
-
-                if not self.if_extract_mesh:
-                    if self.do_update_uncert or self.uncert_always_update:
-                        self.embed_fn.update_uncert_grid(query_points, uncert.detach())
-                    return output_flat
-                else:
-                    output_mean = output.mean(dim=1)
-                    return torch.cat((output_mean, uncert), dim=-1)
-
             else:
                 B, E, D = embed.shape
                 embed_flat = rearrange(embed, 'B E D -> (B E) D')
                 embe_pos_flat = repeat(embe_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
-                    
                 output_flat = self.decoder(embed_flat, embe_pos_flat) # D=4, (rgb, sdf)
-                
                 output = rearrange(output_flat, '(B E) D -> B E D', E=E)
-                
-                sdf_variance = output[..., 3].var(dim=1, keepdim=True) #(N,1) 
-                uncert = sdf_variance
+            
+            if uncert_mask is not None:
+                sdf_variance = output[uncert_mask,:, 3].var(dim=1, keepdim=True) 
+            else:
+                sdf_variance = output[..., 3].var(dim=1, keepdim=True) 
+            uncert = sdf_variance
 
-                if not self.if_extract_mesh:
-                    if self.do_update_uncert or self.uncert_always_update:
+            if not self.if_extract_mesh:
+                if self.do_update_uncert or self.uncert_always_update:
+                    if uncert_mask is not None:
+                        self.embed_fn.update_uncert_grid(query_points[uncert_mask], uncert.detach())
+                    else:
                         self.embed_fn.update_uncert_grid(query_points, uncert.detach())
-                    return output_flat
-                else:
-                    output_mean = output.mean(dim=1)
-                    return torch.cat((output_mean, uncert), dim=-1)
+                return output_flat
+            else:
+                output_mean = output.mean(dim=1)
+                return torch.cat((output_mean, uncert), dim=-1)
+            
         elif self.uncertainty_flag == 'NARUTO':
             return torch.cat(
                         (self.decoder(embed, embe_pos), uncert),
@@ -270,22 +263,27 @@ class JointEncoding(nn.Module):
             return self.decoder(embed, embe_pos)
     
 
-    def run_network(self, inputs):
+    def run_network(self, inputs, uncert_mask=None):
         """
         Run the network on a batch of inputs.
 
         Params:
             inputs: [N_rays, N_samples, 3]
+            uncert_mask: [N_rays, N_samples]
         Returns:
             outputs: [N_rays, N_samples, 4] or [N_rays, N_samples, 5] with uncertainty
         """
-        inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]])
+        inputs_flat = rearrange(inputs, 'N_rays N_sams d -> (N_rays N_sams) d')
+        if uncert_mask is not None:
+            uncert_mask_flat = rearrange(uncert_mask, 'N_rays N_sams -> (N_rays N_sams)')
+        else:
+            uncert_mask_flat = None
         
         # Normalize the input to [0, 1] (TCNN convention)
         if self.config['grid']['tcnn_encoding']:
             inputs_flat = (inputs_flat - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
  
-        outputs_flat = batchify(self.query_color_sdf, None)(inputs_flat)
+        outputs_flat = batchify(self.query_color_sdf, None)(inputs_flat, uncert_mask=uncert_mask_flat)
         
         if self.uncertainty_flag == 'ensemble' and not self.if_extract_mesh:
             E = outputs_flat.shape[0] // inputs_flat.shape[0]
@@ -314,22 +312,22 @@ class JointEncoding(nn.Module):
         rgb, disp_map, acc_map, weights, depth_map, depth_var, uncert_map = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
         return rgb
     
-    def render_rays(self, rays_o, rays_d, target_d=None):
+    def render_rays(self, rays_o, rays_d, target_d=None, uncert_mask=None):
         '''
-            Params:
+        Params:
             rays_o: [N_rays, 3]
             rays_d: [N_rays, 3]
             target_d: [N_rays, 1]
-
+            uncert_mask: [N_rays]
         '''
         n_rays = rays_o.shape[0]
 
-        # Sample depth
         if target_d is not None:
+            # evenly spaced `n_range_d` (11 by default) samples around depth
             z_samples = torch.linspace(-self.config['training']['range_d'], self.config['training']['range_d'], steps=self.config['training']['n_range_d']).to(target_d) 
             z_samples = z_samples[None, :].repeat(n_rays, 1) + target_d
             z_samples[target_d.squeeze()<=0] = torch.linspace(self.config['cam']['near'], self.config['cam']['far'], steps=self.config['training']['n_range_d']).to(target_d) 
-
+            # evenly spaced 'n_samples_d' (32 by default) samples from near to far
             if self.config['training']['n_samples_d'] > 0:
                 z_vals = torch.linspace(self.config['cam']['near'], self.config['cam']['far'], self.config['training']['n_samples_d'])[None, :].repeat(n_rays, 1).to(rays_o)
                 z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
@@ -339,16 +337,21 @@ class JointEncoding(nn.Module):
             z_vals = torch.linspace(self.config['cam']['near'], self.config['cam']['far'], self.config['training']['n_samples']).to(rays_o)
             z_vals = z_vals[None, :].repeat(n_rays, 1) # [n_rays, n_samples]
 
-        # Perturb sampling depths
+        # uniform sample in bins defined by intervals of sampled points of z_vals computed above
         if self.config['training']['perturb'] > 0.:
             mids = .5 * (z_vals[...,1:] + z_vals[...,:-1])
-            upper = torch.cat([mids, z_vals[...,-1:]], -1)
-            lower = torch.cat([z_vals[...,:1], mids], -1)
+            upper = torch.cat([mids, z_vals[...,-1:]], -1) # sample dim = [mid_1, mid_2, .., last z_vals]
+            lower = torch.cat([z_vals[...,:1], mids], -1) # sample_dim = [first z_vals, mid_1, mid_2, ...]
             z_vals = lower + (upper - lower) * torch.rand(z_vals.shape).to(rays_o)
 
         # Run rendering pipeline
         pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples, 3]
-        raw = self.run_network(pts)
+        
+        uncert_mask_expanded = None
+        if uncert_mask is not None:
+             uncert_mask_expanded = repeat(uncert_mask, ' N_rays -> N_rays N_sams', N_sams = z_vals.shape[1]) 
+
+        raw = self.run_network(pts, uncert_mask=uncert_mask_expanded)
 
         if self.uncertainty_flag == 'ensemble' and not self.if_extract_mesh:
             E = raw.shape[0] // n_rays
@@ -368,8 +371,11 @@ class JointEncoding(nn.Module):
 
             z_vals, _ = torch.sort(torch.cat([z_vals, z_samples], -1), -1)
             pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples + N_importance, 3]
+            
+            if uncert_mask is not None:
+                uncert_mask_expanded = uncert_mask.unsqueeze(-1).repeat(1, z_vals.shape[1])
 
-            raw = self.run_network(pts)
+            raw = self.run_network(pts, uncert_mask=uncert_mask_expanded)
             rgb_map, disp_map, acc_map, weights, depth_map, depth_var, uncert_map = self.raw2outputs(raw, z_vals, self.config['training']['white_bkgd'])
 
         # Return rendering outputs
@@ -391,7 +397,7 @@ class JointEncoding(nn.Module):
 
         return ret
     
-    def forward(self, rays_o, rays_d, target_rgb, target_d, global_step=0):
+    def forward(self, rays_o, rays_d, target_rgb, target_d, uncert_mask=None):
         '''
         Params:
             rays_o: ray origins (Bs, 3)
@@ -403,10 +409,11 @@ class JointEncoding(nn.Module):
              r r r tx
              r r r ty
              r r r tz
+            uncert_mask: [Bs]
         '''
 
         # Get render results
-        rend_dict = self.render_rays(rays_o, rays_d, target_d=target_d)
+        rend_dict = self.render_rays(rays_o, rays_d, target_d=target_d, uncert_mask=uncert_mask)
 
         if not self.training:
             return rend_dict

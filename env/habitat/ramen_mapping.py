@@ -265,20 +265,23 @@ class Mapping():
             if i == 0:
                 self.model.do_update_uncert = True
 
-            # Sample rays with real frame ids
-            # rays [bs, 7]
-            # frame_ids [bs]
             if self.config['mapping']['replay']:
                 rays, ids = self.keyframeDatabase.sample_global_rays(self.config['mapping']['sample'])
 
                 #TODO: Checkpoint...
-                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']),max(self.config['mapping']['sample'] // len(self.keyframeDatabase.frame_ids), self.config['mapping']['min_pixels_cur']))
+                # idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']),
+                #                         max(self.config['mapping']['sample'] // len(self.keyframeDatabase.frame_ids), 
+                #                             self.config['mapping']['min_pixels_cur'])) # sample same amount of rays from current frame and the history frame
+                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']),
+                                        self.config['mapping']['min_pixels_cur']) # sample fixed amount from current frames
                 current_rays_batch = current_rays[idx_cur, :]
 
                 rays = torch.cat([rays, current_rays_batch], dim=0) # N, 7
+                 # -1 for current rays since the cuurent pose is concatenated to the end  
                 ids_all = torch.cat([ids//self.config['mapping']['keyframe_every'], -torch.ones((len(idx_cur)))]).to(torch.int64)
             else:
-                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']), self.config['mapping']['sample'])
+                idx_cur = random.sample(range(0, self.dataset_info['H'] * self.dataset_info['W']), 
+                                        self.config['mapping']['sample'])
                 rays = current_rays[idx_cur, :]
                 ids_all = -torch.ones((len(idx_cur))).to(torch.int64)
 
@@ -287,12 +290,19 @@ class Mapping():
             target_s = rays[..., 3:6].to(self.device)
             target_d = rays[..., 6:7].to(self.device)
 
-            # [N, Bs, 1, 3] * [N, 1, 3, 3] = (N, Bs, 3)
+            # [N, 1, 1, 3] * [N, 1, 3, 3] = (N, 1, 3)
             rays_d = torch.sum(rays_d_cam[..., None, None, :] * poses_all[ids_all, None, :3, :3], -1)
             rays_o = poses_all[ids_all, None, :3, -1].repeat(1, rays_d.shape[1], 1).reshape(-1, 3)
             rays_d = rays_d.reshape(-1, 3)
 
-            ret = self.model.forward(rays_o, rays_d, target_s, target_d)
+            uncert_mask = None
+            if self.config['grid'].get('uncert_replay', True):
+                uncert_mask = None # Default behavior: update all
+            else:
+                 # Only update uncertainty for current frame (ids_all == -1)
+                 uncert_mask = (ids_all == -1)
+
+            ret = self.model.forward(rays_o, rays_d, target_s, target_d, uncert_mask=uncert_mask)
 
             self.map_optimizer.zero_grad()
             loss = self.get_loss_from_ret(ret, smooth=True)

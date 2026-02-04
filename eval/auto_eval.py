@@ -29,15 +29,15 @@ def extract_metrics_from_output(output):
     if output is None:
         return None, None, None
         
-    accuracy_match = re.search(r"accuracy: (\d+\.?\d*)", output)
-    completion_match = re.search(r"completion: (\d+\.?\d*)", output)
-    completion_ratio_match = re.search(r"completion ratio: (\d+\.?\d*)", output)
+    precision_match = re.search(r"precision: (\d+\.?\d*)", output)
+    recall_match = re.search(r"recall: (\d+\.?\d*)", output)
+    f1_match = re.search(r"f1: (\d+\.?\d*)", output)
 
-    acc = float(accuracy_match.group(1)) if accuracy_match else None
-    comp = float(completion_match.group(1)) if completion_match else None
-    comp_ratio = float(completion_ratio_match.group(1)) if completion_ratio_match else None
+    precision = float(precision_match.group(1)) if precision_match else None
+    recall = float(recall_match.group(1)) if recall_match else None
+    f1 = float(f1_match.group(1)) if f1_match else None
 
-    return acc, comp, comp_ratio
+    return precision, recall, f1
 
 
 def find_last_mesh(agent_path):
@@ -93,11 +93,11 @@ class cull_and_evaluate:
         eval_output = run_command(eval_cmd)
 
         # 3. Extract and store metrics
-        acc, comp, comp_ratio = extract_metrics_from_output(eval_output)
+        precision, recall, f1 = extract_metrics_from_output(eval_output)
         return {
-            "acc": acc,
-            "comp": comp,
-            "comp_ratio": comp_ratio,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
             "mesh_name": input_mesh.split('/')[2:]
         }
 
@@ -114,7 +114,7 @@ def main():
     mapping_cfg_path = exp_cfg['mapping_cfg']
     num_processes = exp_cfg['num_processes']
     all_exps = list(itertools.product(exp_cfg['exp_names'], exp_cfg['episodes'], exp_cfg['threads']))
-    evaluation_results = {"acc":[], "comp":[], "comp_ratio":[], "mesh_name":[]}
+    evaluation_results = {"precision":[], "recall":[], "f1":[], "mesh_name":[]}
 
     for exp in tqdm(all_exps, desc='outer'):
             base_path = os.path.join('results/mapping', f'{exp[0]}_ep{exp[1]}', f'agent_{exp[2]}')
@@ -137,9 +137,9 @@ def main():
                 ))
 
             for res in results:
-                evaluation_results["acc"].append(res["acc"])
-                evaluation_results["comp"].append(res["comp"])
-                evaluation_results["comp_ratio"].append(res["comp_ratio"])
+                evaluation_results["precision"].append(res["precision"])
+                evaluation_results["recall"].append(res["recall"])
+                evaluation_results["f1"].append(res["f1"])
                 evaluation_results["mesh_name"].append(res["mesh_name"])
 
     with open('./eval/evaluation_results.json', 'w') as f:

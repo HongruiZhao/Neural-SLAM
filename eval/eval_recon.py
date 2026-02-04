@@ -10,6 +10,8 @@ import trimesh
 from scipy.spatial import cKDTree as KDTree
 from tqdm import trange
 import quaternion
+import matplotlib.pyplot as plt
+from pathlib import Path
 
 '''
 reconstruction evaluation tools
@@ -34,7 +36,7 @@ def completion_ratio(gt_points, rec_points, dist_th=0.05):
     gen_points_kd_tree = KDTree(rec_points)
     distances, _ = gen_points_kd_tree.query(gt_points)
     comp_ratio = np.mean((distances < dist_th).astype(np.float32))
-    return comp_ratio
+    return comp_ratio, distances
 
 
 def accuracy(gt_points, rec_points):
@@ -51,25 +53,21 @@ def completion(gt_points, rec_points):
     return comp
 
 
-def get_align_transformation(rec_meshfile, gt_meshfile, mesh_rec, initial_state):
+def get_align_transformation(initial_state, map_center=12.0):
     """
     Get the transformation matrix to align the reconstructed mesh to the ground truth mesh.
     """
-    o3d_rec_mesh = o3d.io.read_triangle_mesh(rec_meshfile)
-    o3d_gt_mesh = o3d.io.read_triangle_mesh(gt_meshfile)
-
     #  flip axes
     trans_habitat2mesh = np.array([ [1,0,0,0],
                                     [0,0,-1,0],
                                     [0,1,0,0],
                                     [0,0,0,1]])
-    trans_step1 = trans_habitat2mesh 
+    trans_step1 = trans_habitat2mesh.copy()
 
     # translate to center at robot frame
-    map_center = 12.0 # in m
+    # map_center = 12.0 # in m
     rec_ori2robot = np.array([-map_center, 0, -map_center])
     trans_step1[:3,3] = -trans_habitat2mesh[:3,:3]@rec_ori2robot
-    mesh_rec = mesh_rec.apply_transform(trans_step1)
 
     # rotation around robot frame to account for initial orientation
     eulers = trimesh.transformations.euler_from_quaternion(initial_state['rotation'], axes='sxyz')
@@ -80,29 +78,13 @@ def get_align_transformation(rec_meshfile, gt_meshfile, mesh_rec, initial_state)
 
     # translation to account for initial position
     agent_height = 1.25 # in m
-    habitat_ori2robot = initial_state['position'] 
+    habitat_ori2robot = initial_state['position'].copy()
     habitat_ori2robot[1] += agent_height   
     habitat_ori2robot = trans_habitat2mesh[:3,:3] @ habitat_ori2robot
     trans_step2[:3,3] = habitat_ori2robot
-    mesh_rec = mesh_rec.apply_transform(trans_step2)
 
-    # # icp for fine alignment 
-    # trans_init = np.eye(4)
-    # o3d_rec_pc = o3d.geometry.PointCloud(points=o3d_rec_mesh.vertices)
-    # o3d_gt_pc = o3d.geometry.PointCloud(points=o3d_gt_mesh.vertices)
-    # threshold = 0.1
-    # reg_p2p = o3d.pipelines.registration.registration_icp(
-    #     o3d_rec_pc, o3d_gt_pc, threshold, trans_init,
-    #     o3d.pipelines.registration.TransformationEstimationPointToPoint())
-    # # for open3d 0.9.0
-    # # reg_p2p = o3d.registration.registration_icp(
-    # #     o3d_rec_pc, o3d_gt_pc, threshold, trans_init,
-    # #     o3d.registration.TransformationEstimationPointToPoint())
-    # transformation = reg_p2p.transformation
-
-    # mesh_rec = mesh_rec.apply_transform(transformation)
-
-    return mesh_rec
+    trans_combined = trans_step2 @ trans_step1
+    return trans_combined
 
 
 def check_proj(points, W, H, fx, fy, cx, cy, c2w):
@@ -133,28 +115,6 @@ def check_proj(points, W, H, fx, fy, cx, cy, c2w):
     return mask.sum() > 0
 
 
-def calc_3d_mesh_metric(mesh_rec, mesh_gt, align=False):
-    """
-    3D reconstruction metric.
-
-    """
-
-    rec_pc = trimesh.sample.sample_surface(mesh_rec, 200000)
-    rec_pc_tri = trimesh.PointCloud(vertices=rec_pc[0])
-
-    gt_pc = trimesh.sample.sample_surface(mesh_gt, 200000)
-    gt_pc_tri = trimesh.PointCloud(vertices=gt_pc[0])
-    accuracy_rec = accuracy(gt_pc_tri.vertices, rec_pc_tri.vertices)
-    completion_rec = completion(gt_pc_tri.vertices, rec_pc_tri.vertices)
-    completion_ratio_rec = completion_ratio(
-        gt_pc_tri.vertices, rec_pc_tri.vertices)
-    accuracy_rec *= 100  # convert to cm
-    completion_rec *= 100  # convert to cm
-    completion_ratio_rec *= 100  # convert to %
-
-    return {'acc': accuracy_rec, 'comp': completion_rec, 'comp%': completion_ratio_rec}
-
-
 def calc_3d_metric(rec_meshfile, gt_meshfile, initial_state, align=True):
     """
     3D reconstruction metric.
@@ -163,30 +123,111 @@ def calc_3d_metric(rec_meshfile, gt_meshfile, initial_state, align=True):
     mesh_gt = trimesh.load(gt_meshfile, process=False, force='mesh') # force: otherwise.glb are loaded as scene
 
     if align:
-        mesh_rec = get_align_transformation(rec_meshfile, gt_meshfile, 
-                                                            mesh_rec, initial_state)
+        trans_rec_to_gt = get_align_transformation(initial_state)
+        mesh_gt.apply_transform(np.linalg.inv(trans_rec_to_gt)) 
 
     rec_pc = trimesh.sample.sample_surface(mesh_rec, 200000)
     rec_pc_tri = trimesh.PointCloud(vertices=rec_pc[0])
 
     gt_pc = trimesh.sample.sample_surface(mesh_gt, 200000)
     gt_pc_tri = trimesh.PointCloud(vertices=gt_pc[0])
-    accuracy_rec = accuracy(gt_pc_tri.vertices, rec_pc_tri.vertices)
-    completion_rec = completion(gt_pc_tri.vertices, rec_pc_tri.vertices)
-    completion_ratio_rec = completion_ratio(
-        gt_pc_tri.vertices, rec_pc_tri.vertices)
-    accuracy_rec *= 100  # convert to cm
-    completion_rec *= 100  # convert to cm
-    completion_ratio_rec *= 100  # convert to %
-    print('accuracy: {:.2f}'.format(accuracy_rec) )
-    print('completion: {:.2f}'.format(completion_rec) )
-    print('completion ratio: {:.2f}'.format(completion_ratio_rec) )
+    
+    # Precision 5cm
+    precision_rec, rec_dists = completion_ratio(rec_pc_tri.vertices, gt_pc_tri.vertices, dist_th=0.05)
+    # Recall 5cm
+    recall_rec, gt_dists = completion_ratio(gt_pc_tri.vertices, rec_pc_tri.vertices, dist_th=0.05)
+    
+    precision_rec *= 100
+    recall_rec *= 100
+    f1_rec = 2 * precision_rec * recall_rec / (precision_rec + recall_rec + 1e-6)
 
-    return{
-        'acc': accuracy_rec,
-        'comp': completion_rec,
-        'comp ratio': completion_ratio_rec
-    }
+    # Visualize metrics
+    exp_name = Path(rec_meshfile).parts[-3]
+    mesh_name = Path(rec_meshfile).stem
+    visualize_metrics(rec_pc_tri.vertices, gt_pc_tri.vertices, exp_name, mesh_name, rec_dists=rec_dists, gt_dists=gt_dists)
+
+    print('precision: {:.2f}'.format(precision_rec) )
+    print('recall: {:.2f}'.format(recall_rec) )
+    print('f1: {:.2f}'.format(f1_rec) )
+
+    return {'Precision 5cm': precision_rec, 'Recall 5cm': recall_rec, 'F1 5cm': f1_rec}
+
+
+def visualize_metrics(rec_pc, gt_pc, exp_name, mesh_name, 
+                      rec_dists=None, gt_dists=None, 
+                      grid_res=200, map_bound_x=[-24,0], map_bound_z=[-24,0]):
+    """
+    Visualize precision, recall, and F1 score on a 2D grid.
+    """
+    # Create grids
+    precision_grid = np.zeros((grid_res, grid_res))
+    recall_grid = np.zeros((grid_res, grid_res))
+    f1_grid = np.zeros((grid_res, grid_res))
+
+    rec_pts_per_cell = np.zeros((grid_res, grid_res))
+    gt_pts_per_cell = np.zeros((grid_res, grid_res))
+    
+    rec_tp_per_cell = np.zeros((grid_res, grid_res))
+    gt_tp_per_cell = np.zeros((grid_res, grid_res))
+
+    # Discretize points into grid cells
+    x_coords = np.clip(np.floor((rec_pc[:, 0] - map_bound_x[0]) / (map_bound_x[1] - map_bound_x[0]) * grid_res), 0, grid_res - 1).astype(int)
+    z_coords = np.clip(np.floor((rec_pc[:, 2] - map_bound_z[0]) / (map_bound_z[1] - map_bound_z[0]) * grid_res), 0, grid_res - 1).astype(int)
+    
+    for i in range(len(x_coords)):
+        rec_pts_per_cell[z_coords[i], x_coords[i]] += 1
+    
+    gt_x_coords = np.clip(np.floor((gt_pc[:, 0] - map_bound_x[0]) / (map_bound_x[1] - map_bound_x[0]) * grid_res), 0, grid_res - 1).astype(int)
+    gt_z_coords = np.clip(np.floor((gt_pc[:, 2] - map_bound_z[0]) / (map_bound_z[1] - map_bound_z[0]) * grid_res), 0, grid_res - 1).astype(int)
+
+    for i in range(len(gt_x_coords)):
+        gt_pts_per_cell[gt_z_coords[i], gt_x_coords[i]] += 1
+
+    # Precision
+    if rec_dists is None:
+        gt_kdtree = KDTree(gt_pc)
+        rec_dists, _ = gt_kdtree.query(rec_pc)
+        
+    for i, dist in enumerate(rec_dists):
+        if dist < 0.05:
+            rec_tp_per_cell[z_coords[i], x_coords[i]] += 1
+
+    # Recall
+    if gt_dists is None:
+        rec_kdtree = KDTree(rec_pc)
+        gt_dists, _ = rec_kdtree.query(gt_pc)
+        
+    for i, dist in enumerate(gt_dists):
+        if dist < 0.05:
+            gt_tp_per_cell[gt_z_coords[i], gt_x_coords[i]] += 1
+            
+    # Calculate metrics per cell
+    precision_grid = np.divide(rec_tp_per_cell, rec_pts_per_cell, out=np.zeros_like(rec_tp_per_cell), where=rec_pts_per_cell!=0)
+    recall_grid = np.divide(gt_tp_per_cell, gt_pts_per_cell, out=np.zeros_like(gt_tp_per_cell), where=gt_pts_per_cell!=0)
+    
+    # F1 score
+    f1_grid = np.divide(2 * precision_grid * recall_grid, precision_grid + recall_grid, out=np.zeros_like(precision_grid), where=(precision_grid + recall_grid)!=0)
+
+    # Plotting
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    
+    im1 = axes[0].imshow(precision_grid, cmap='viridis')
+    axes[0].set_title('Precision 5cm')
+    fig.colorbar(im1, ax=axes[0])
+
+    im2 = axes[1].imshow(recall_grid, cmap='viridis')
+    axes[1].set_title('Recall 5cm')
+    fig.colorbar(im2, ax=axes[1])
+
+    im3 = axes[2].imshow(f1_grid, cmap='viridis')
+    axes[2].set_title('F1 5cm')
+    fig.colorbar(im3, ax=axes[2])
+    
+    # Create folder and save plot
+    output_dir = Path('eval_vis_results') / exp_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_dir / f'{mesh_name}.png')
+    plt.close(fig)
 
 
 def get_cam_position(gt_meshfile, sx=0.3, sy=0.6, sz=0.6, dx=0.0, dy=0.0, dz=0.0):
@@ -231,175 +272,8 @@ def render_depth_offscreen(mesh, width, height, fx, fy, cx, cy, c2w):
     depth_array = np.asarray(depth_image)
     
     return depth_array
-#------------------------------------------------------
-    """def calc_2d_metric(rec_meshfile, gt_meshfile, unseen_gt_pcd_file,
-                   pose_file=None, gt_depth_render_file=None,
-                   depth_render_file=None, suffix="virt_cams", align=True,
-                   n_imgs=1000, not_counting_missing_depth=True,
-                   sx=0.3, sy=0.6, sz=0.6, dx=0.0, dy=0.0, dz=0.0):
-    """
-    """ 2D reconstruction metric, depth L1 loss. modified from NICE-SLAM
-    :param rec_meshfile: path to culled reconstructed mesh .ply
-    :param gt_meshfile: path to culled GT mesh .ply
-    :param unseen_gt_pcd_file: path to unseen pointcloud file .npy
-    :param pose_file: path to sampled camera poses, saved as .npz (optional). Redo sampling if not provided
-    :param gt_depth_render_file: path to rendered depth maps of GT mesh, saved as .npz (optional). Re-render if not provided
-    :param depth_render_file: path to rendered depth maps of reconstructed mesh, saved as .npz (optional). Re-render if not provided
-    :param suffix: suffix of reconstructed mesh
-    :param align:
-    :param n_imgs: number of views to sample
-    :param not_counting_missing_depth: remove missing depth pixels in GT depth maps when computing depth L1
-    :param sx: scale_x
-    :param sy: scale_y
-    :param sz: scale_z
-    :param dx: offset_x
-    :param dy: offset_y
-    :param dz: offset_z
-    :return:"""
-    """
-    H = 500
-    W = 500
-    focal = 300
-    fx = focal
-    fy = focal
-    cx = H/2.0-0.5
-    cy = W/2.0-0.5
 
-    gt_mesh = o3d.io.read_triangle_mesh(gt_meshfile)
-    rec_mesh = o3d.io.read_triangle_mesh(rec_meshfile)
-    pc_unseen = np.load(unseen_gt_pcd_file)
 
-    if pose_file and os.path.exists(pose_file):
-        sampled_poses = np.load(pose_file)["poses"]
-        assert len(sampled_poses) == n_imgs
-        print("Found saved renering poses! Loading from disk!!!")
-    else:
-        sampled_poses = None
-        print("Saved renering poses NOT FOUND! Will do the sampling")
-    if gt_depth_render_file and os.path.exists(gt_depth_render_file):
-        gt_depth_renderings = np.load(gt_depth_render_file)["depths"]
-        assert len(gt_depth_renderings) == n_imgs
-        print("Found saved renered gt depths! Loading from disk!!!")
-    else:
-        gt_depth_renderings = None
-        print("Saved renered gt depths NOT FOUND! Will re-render!!!")
-    if depth_render_file and os.path.exists(depth_render_file):
-        depth_renderings = np.load(depth_render_file)["depths"]
-        assert len(depth_renderings) == n_imgs
-        print("Found saved renered reconstructed depth! Loading from disk!!!")
-    else:
-        depth_renderings = None
-        print("Saved renered reconstructed depth NOT FOUND! Will re-render!!!")
-
-    gt_dir = os.path.dirname(unseen_gt_pcd_file)
-    log_dir = os.path.dirname(rec_meshfile)
-
-    if align:
-        transformation = get_align_transformation(rec_meshfile, gt_meshfile)
-        rec_mesh = rec_mesh.transform(transformation)
-
-    # get vacant area inside the room
-    extents, transform = get_cam_position(gt_meshfile, sx=sx, sy=sy, sz=sz, dx=dx, dy=dy, dz=dz)
-
-    vis = o3d.visualization.Visualizer()
-    vis.create_window(width=W, height=H)
-    vis.get_render_option().mesh_show_back_face = True
-    errors = []
-    poses = []
-    gt_depths = []
-    depths = []
-    for i in trange(n_imgs, smoothing=0):
-        if sampled_poses is None:
-            while True:
-                # sample view, and check if unseen region is not inside the camera view
-                # if inside, then needs to resample
-                # camera-up (Y-direction) vector under world
-                up = [0, 0, -1]
-                # camera origin coord under world coordinate-frame, sampled within extents of the oriented bound
-                origin = trimesh.sample.volume_rectangular(extents, 1, transform=transform)
-                origin = origin.reshape(-1)
-                # sampled target coord under world [tx, ty, tz]
-                tx = round(random.uniform(-10000, +10000), 2)
-                ty = round(random.uniform(-10000, +10000), 2)
-                tz = round(random.uniform(-10000, +10000), 2)
-                target = [tx, ty, tz]
-                # look_at vector (camera-Z), from origin to target
-                target = np.array(target)-np.array(origin)
-                c2w = viewmatrix(target, up, origin)
-                tmp = np.eye(4)
-                tmp[:3, :] = c2w
-                c2w = tmp
-                seen = check_proj(pc_unseen, W, H, fx, fy, cx, cy, c2w)
-                if (~seen):
-                    break
-            poses.append(c2w)
-        else:
-            c2w = sampled_poses[i]
-
-        param = o3d.camera.PinholeCameraParameters()
-        # extrinsic is w2c
-        param.extrinsic = np.linalg.inv(c2w)  # 4x4 numpy array
-
-        param.intrinsic = o3d.camera.PinholeCameraIntrinsic(
-            W, H, fx, fy, cx, cy)
-
-        ctr = vis.get_view_control()
-        ctr.set_constant_z_far(20)
-        ctr.convert_from_pinhole_camera_parameters(param, allow_arbitrary=True)
-
-        if gt_depth_renderings is None:
-            vis.add_geometry(gt_mesh, reset_bounding_box=True,)
-            ctr.convert_from_pinhole_camera_parameters(param, allow_arbitrary=True)
-            vis.poll_events()
-            vis.update_renderer()
-            gt_depth = vis.capture_depth_float_buffer(True)
-            gt_depth = np.asarray(gt_depth)
-            vis.remove_geometry(gt_mesh, reset_bounding_box=True,)
-            gt_depths.append(gt_depth)
-        else:
-            gt_depth = gt_depth_renderings[i]
-        
-        if depth_renderings is None:
-            vis.add_geometry(rec_mesh, reset_bounding_box=True,)
-            ctr.convert_from_pinhole_camera_parameters(param, allow_arbitrary=True)
-            vis.poll_events()
-            vis.update_renderer()
-            ours_depth = vis.capture_depth_float_buffer(True)
-            ours_depth = np.asarray(ours_depth)
-            vis.remove_geometry(rec_mesh, reset_bounding_box=True,)
-            depths.append(ours_depth)
-        else:
-            ours_depth = depth_renderings[i]
-
-        if not_counting_missing_depth:
-            valid_mask = (gt_depth > 0.) & (gt_depth < 19.)
-            if np.count_nonzero(valid_mask) <= 100:
-                continue
-            # print(i, np.count_nonzero(valid_mask))
-            errors += [np.abs(gt_depth[valid_mask] - ours_depth[valid_mask]).mean()]
-        else:
-            errors += [np.abs(gt_depth-ours_depth).mean()]
-
-    if pose_file is None:
-        np.savez(os.path.join(gt_dir, "sampled_poses_{}.npz".format(n_imgs)), poses=poses)
-    elif not os.path.exists(pose_file):
-        np.savez(pose_file, poses=poses)
-
-    if gt_depth_render_file is None:
-        np.savez(os.path.join(gt_dir, "gt_depths_{}.npz".format(n_imgs)), depths=gt_depths)
-    elif not os.path.exists(gt_depth_render_file):
-        np.savez(gt_depth_render_file, depths=gt_depths)
-
-    if depth_render_file is None:
-        np.savez(os.path.join(log_dir, "depths_{}_{}.npz".format(suffix, n_imgs)), depths=depths)
-    elif not os.path.exists(depth_render_file):
-        np.savez(depth_render_file, depths=depths)
-
-    errors = np.array(errors)
-    # from m to cm
-    print('Depth L1: ', errors.mean() * 100)
-    return {"Depth L1": errors.mean() * 100}
-"""
 
 def calc_2d_metric(rec_meshfile, gt_meshfile, unseen_gt_pcd_file,
                    pose_file=None, gt_depth_render_file=None,
