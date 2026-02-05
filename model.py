@@ -471,9 +471,7 @@ class RL_Policy(nn.Module):
         if model_type == 'NeuralSLAM':
             self.network = Global_Policy(obs_shape, **base_kwargs)
         elif model_type == 'lena':
-            self.network = Global_Policy_Tensor(tensor_former_args,
-                                                **base_kwargs)
-            self.tensor_lengths = tensor_former_args['tensor_lengths']
+            self.network = Global_Policy(obs_shape, **base_kwargs)
         else:
             raise NotImplementedError
 
@@ -487,12 +485,6 @@ class RL_Policy(nn.Module):
         else:
             raise NotImplementedError
 
-    def _split_views(self, inputs):
-        inputs = inputs.squeeze(-1) # (B, rank, sum(lengths))
-        views_unarranged = torch.split(inputs, self.tensor_lengths, dim=2)
-        # Rearrange back to (B, rank, length, 1)
-        views = [v.unsqueeze(-1) for v in views_unarranged]
-        return views
 
     @property
     def is_recurrent(self):
@@ -504,9 +496,6 @@ class RL_Policy(nn.Module):
         return self.network.rec_state_size
 
     def forward(self, inputs, rnn_hxs, masks, extras):
-        if self.model_type == 'lena':
-            inputs = self._split_views(inputs)
-
         if extras is None:
             return self.network(inputs, rnn_hxs, masks)
         else:

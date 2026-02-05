@@ -39,6 +39,7 @@ from utils.heuristics import HeuristicTracker
 
 args = get_args()
 
+torch.set_float32_matmul_precision('medium') 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 

@@ -318,7 +318,7 @@ class Exploration_Env(habitat.RLEnv):
                 self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
                 self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).mean()))
                 if self.args.use_uncertainty_reward:
-                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).mean()
+                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).sum()
             else:
                 self.uncert_map = None
             
