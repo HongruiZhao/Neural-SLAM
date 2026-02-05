@@ -17,26 +17,28 @@
 * Currently, we rely solely on this empirical variance and do not explicitly model the heteroscedastic noise (learned variance $\sigma^2_{\theta_m}$) for each member.
 
 ## Implementation Overview
-* The ensemble and the uncertainty grid are defined in the class `HashUncertainty` in `env/habitat/model/encodings.py`.
-* The uncertainty grid uses an **Exponential Moving Average (EMA)** to fuse ensemble disagreement over time.
+* **Exponential Moving Average (EMA)** to fuse ensemble disagreement over time.
     * **Update Rule**: $U_{t} = \alpha \cdot U_{obs} + (1 - \alpha) \cdot U_{t-1}$ (where $\alpha = 0.1$).
-    * **Initialization**: 
-        * If `[grid][initial_uncert]` is set to a float value (e.g., `1e-2`), the grid is initialized to this constant.
-        * If `[grid][initial_uncert]` is set to `null` (None), the grid is initialized dynamically. It starts at 0, and upon the first update, the **maximum variance** observed in that update batch is used to fill the entire grid. This effectively sets the "unobserved" background uncertainty to the highest uncertainty seen in the first frame.
-    * **Manual Re-initialization**:
-        * To control the initial variance of the ensemble members (which promotes diversity), we can manually re-initialize the `tcnn.Encoding` parameters.
-        * This is controlled by the `[grid][custom_init]` (bool) and `[grid][init_gain]` (float) flags in the config.
-        * If `custom_init` is True, each member's parameters are re-initialized using `torch.nn.init.xavier_normal_` with the specified `init_gain`. 
-    * **Heterogeneous Ensemble**:
-        * To further increase diversity, we can use a heterogeneous ensemble where each member has different architectural hyperparameters.
-        * This is controlled by the `[grid][heterogeneous]` (bool) flag in the config (default: `False`).
-        * When enabled, `HashUncertainty` varies the following parameters for each ensemble member:
-            * `n_levels` and `level_dim`: Varied such that the total feature dimension (`n_levels * level_dim`) remains constant across all members.
-            * `base_resolution` and `desired_resolution`: Varied using a set of multipliers to encourage multiscale diversity.
-   
-* The ensemble logic is handled in `JointEncoding` within `env/habitat/model/scene_rep.py`.
-* A flag `self.if_extract_mesh` in `JointEncoding` controls the behavior between training (independent members) and inference (averaged output).
-* A flag `multi_decoder` in `mapping.yaml` (under `grid`) toggles between using a shared decoder (False) or independent decoders for each ensemble member (True). When True, each member has its own `ColorSDFNet_v2`.
+* **Uncertainty Grid Initialization**: 
+    * If `[grid][initial_uncert]` is set to a float value (e.g., `1e-2`), the grid is initialized to this constant.
+    * If `[grid][initial_uncert]` is set to `null` (None), the grid is initialized dynamically. It starts at 0, and upon the first update, the **maximum variance** observed in that update batch is used to fill the entire grid. This effectively sets the "unobserved" background uncertainty to the highest uncertainty seen in the first frame.
+* **Ensemble Initialization**:
+    * To control the initial variance of the ensemble members (which promotes diversity), we can manually re-initialize the `tcnn.Encoding` parameters.
+    * This is controlled by the `[grid][custom_init]` (bool) and `[grid][init_gain]` (float) flags in the config.
+    * If `custom_init` is True, each member's parameters are re-initialized using `torch.nn.init.xavier_normal_` with the specified `init_gain`. 
+* **Heterogeneous Ensemble**:
+    * To further increase diversity, we can use a heterogeneous ensemble where each member has different architectural hyperparameters.
+    * This is controlled by the `[grid][heterogeneous]` (bool) flag in the config (default: `False`).
+    * When enabled, `HashUncertainty` varies the following parameters for each ensemble member:
+        * `n_levels` and `level_dim`: Varied such that the total feature dimension (`n_levels * level_dim`) remains constant across all members.
+        * `base_resolution` and `desired_resolution`: Varied using a set of multipliers to encourage multiscale diversity.
+* **Conditional Update**: The grid is *only updated at the first iteration* of the mapping optimization loops (specifically in `first_frame_mapping` and `global_BA`). This makes sure we compute the uncertainty at unseen *test* data points . We can allow the uncertainty always be able to updated by setting the `[grid][uncert_always_update]` flag in @env/habitat/configs/mapping.yaml.
+
+* Some key files/flags:        
+    * The ensemble and the uncertainty grid are defined in the class `HashUncertainty` in `env/habitat/model/encodings.py`.
+    * The ensemble logic is handled in `JointEncoding` within `env/habitat/model/scene_rep.py`.
+    * A flag `self.if_extract_mesh` in `JointEncoding` controls the behavior between training (independent members) and inference (averaged output).
+    * A flag `multi_decoder` in `mapping.yaml` (under `grid`) toggles between using a shared decoder (False) or independent decoders for each ensemble member (True). When True, each member has its own `ColorSDFNet_v2`.
 
 
 ## Training Behavior (`if_extract_mesh = False`)
@@ -45,9 +47,6 @@
     * `query_color_sdf` in @env/habitat/model/scene_rep.py returns concatenated outputs of shape `[N_rays * N_ensemble, N_samples, 4]`.
     * `target_rgb` and `target_d` in `forward()` are repeated `N_ensemble` times to match the concatenated output.
     * `z_vals` in `render_rays` are also repeated to match the expanded batch size.
-* **Uncertainty Update**: The uncertainty grid is updated using the variance of the ensemble predictions with an **Exponential Moving Average (EMA)** rule.
-    * **Conditional Update**: To ensure the ensemble provides stable uncertainty estimates, the grid is **only updated at the last iteration** of the mapping optimization loops (specifically in `first_frame_mapping` and `global_BA`). This prevents the uncertainty map from being polluted by unconverged predictions during the intermediate steps of optimization. We can allow the uncertainty always be able to updated by setting the `[grid][uncert_always_update]` flag in @env/habitat/configs/mapping.yaml.
-
 * **Smoothness Loss**:
     * `query_sdf` returns expanded embeddings/SDFs.
     * `smoothness` in @env/habitat/ramen_mapping.py calculates Total Variation (TV) loss for each ensemble member separately and averages the results.
