@@ -30,6 +30,7 @@ grid:
   multi_decoder: True
   uncert_always_update: False
   uncert_replay: False
+  heterogeneous: False
   custom_init: True 
   init_gain: 5.0 # xavier normal gain, default 1.0
   

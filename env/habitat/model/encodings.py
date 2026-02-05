@@ -27,18 +27,52 @@ class HashUncertainty(torch.nn.Module):
             base_seed = torch.initial_seed()
             custom_init = cfg['grid'].get('custom_init', False)
             init_gain = cfg['grid'].get('init_gain', 1.0)
+            
+            is_heterogeneous = cfg['grid'].get('heterogeneous', False)
+            total_features = n_levels * level_dim
 
             for i in range(cfg['grid'].get('ensemble_size', 5)):
+                current_encoding_config = encoding_config.copy()
+                
+                if is_heterogeneous:
+                    # Heterogeneous ensemble: vary parameters
+                    # 1. Vary level_dim (and n_levels) ensuring constant total_features
+                    candidates = [d for d in [2, 4, 8] if (total_features % d == 0) and (total_features // d > 1)]
+                    if not candidates: candidates = [level_dim]
+                    
+                    new_level_dim = candidates[i % len(candidates)]
+                    new_n_levels = total_features // new_level_dim
+                    
+                    # Vary resolutions
+                    base_mults = [1.0, 1.5, 0.75, 2.0, 0.5]
+                    des_mults = [1.0, 2.0, 0.5, 1.5, 0.75]
+                    
+                    new_base_res = int(base_resolution * base_mults[i % len(base_mults)])
+                    new_des_res = int(desired_resolution * des_mults[i % len(des_mults)]) 
+                    
+                    # Ensure base < desired
+                    if new_base_res >= new_des_res:
+                        new_des_res = new_base_res * 4
+                    
+                    new_per_level_scale = np.exp2(np.log2(new_des_res / new_base_res) / (new_n_levels - 1))
+                    
+                    current_encoding_config.update({
+                        "n_levels": new_n_levels,
+                        "n_features_per_level": new_level_dim,
+                        "base_resolution": new_base_res,
+                        "per_level_scale": new_per_level_scale
+                    })
+
                 enc = tcnn.Encoding(
                     n_input_dims=input_dim,
-                    encoding_config=encoding_config,
+                    encoding_config=current_encoding_config,
                     dtype=torch.float,
                     seed=base_seed + i 
                 )
                 if custom_init:
                     for param in enc.parameters():
                         if len(param.shape) == 1:
-                            torch.nn.init.xavier_normal_(param.view(-1, level_dim), gain=init_gain)
+                            torch.nn.init.xavier_normal_(param.view(-1, current_encoding_config["n_features_per_level"]), gain=init_gain)
                         else:
                             torch.nn.init.xavier_normal_(param, gain=init_gain)
                 self.embed_ensemble.append(enc)

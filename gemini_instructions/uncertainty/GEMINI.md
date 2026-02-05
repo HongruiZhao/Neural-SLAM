@@ -1,5 +1,5 @@
 # Current Implementation of Ensemble Uncertainty
-**Last Updated**: Monday, January 26, 2026
+**Last Updated**: Tuesday, February 3, 2026
 
 ## Theory for uncertainty 
 * We follow the paper "Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles" (@./gemini_instructions/uncertainty/deep_ensemble.pdf) for our ensemble uncertainty implementation.
@@ -27,6 +27,12 @@
         * To control the initial variance of the ensemble members (which promotes diversity), we can manually re-initialize the `tcnn.Encoding` parameters.
         * This is controlled by the `[grid][custom_init]` (bool) and `[grid][init_gain]` (float) flags in the config.
         * If `custom_init` is True, each member's parameters are re-initialized using `torch.nn.init.xavier_normal_` with the specified `init_gain`. 
+    * **Heterogeneous Ensemble**:
+        * To further increase diversity, we can use a heterogeneous ensemble where each member has different architectural hyperparameters.
+        * This is controlled by the `[grid][heterogeneous]` (bool) flag in the config (default: `False`).
+        * When enabled, `HashUncertainty` varies the following parameters for each ensemble member:
+            * `n_levels` and `level_dim`: Varied such that the total feature dimension (`n_levels * level_dim`) remains constant across all members.
+            * `base_resolution` and `desired_resolution`: Varied using a set of multipliers to encourage multiscale diversity.
    
 * The ensemble logic is handled in `JointEncoding` within `env/habitat/model/scene_rep.py`.
 * A flag `self.if_extract_mesh` in `JointEncoding` controls the behavior between training (independent members) and inference (averaged output).
