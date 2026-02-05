@@ -332,13 +332,13 @@ def main():
     # Initialize variables to check for stuck agents
     heuristic_tracker = HeuristicTracker(args, num_scenes)
 
-    for ep_num in trange(num_episodes):
+    for ep_num in trange(num_episodes, smoothing=0):
         all_accumulated_ratios[ep_num] = []
         uncertainty_list[ep_num] = []
 
         if args.use_DD_PPO != 'none':
             l_policy.reset()
-        for step in trange(args.max_episode_length):
+        for step in trange(args.max_episode_length, smoothing=0):
             total_num_steps += 1
 
             g_step = (step // args.num_local_steps) % args.num_global_steps

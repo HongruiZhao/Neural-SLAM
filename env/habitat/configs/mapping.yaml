@@ -8,8 +8,8 @@ mapping:
   keyframe_every: 10
   lr_uncert: 0.01
   first_mesh: False # don't save first mesh
-  first_iters: 10
-  iters: 10
+  first_iters: 100
+  iters: 100
   replay: True
   min_pixels_cur: 1000 # from current 
   sample: 1000 # from history
@@ -25,7 +25,7 @@ grid:
   voxel_sdf: 0.02
   uncertainty: 'ensemble' # 'NARUTO','ensemble', or 'none'
   voxel_uncert: 0.1
-  ensemble_size: 5
+  ensemble_size: 3
   initial_uncert: null # 1e-3 is str, 1.0e-3 is float
   multi_decoder: True
   uncert_always_update: False
