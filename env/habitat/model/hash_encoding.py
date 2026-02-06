@@ -4,61 +4,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-BOX_OFFSETS = torch.tensor([[[i,j,k] for i in [0, 1] for j in [0, 1] for k in [0, 1]]],
-                               device='cuda')
-
-def hash(coords, log2_hashmap_size):
-    '''
-    coords: this function can process upto 7 dim coordinates
-    log2T:  logarithm of T w.r.t 2
-    '''
-    primes = [1, 2654435761, 805459861, 3674653429, 2097192037, 1434869437, 2165219737]
-
-    xor_result = torch.zeros_like(coords)[..., 0]
-    for i in range(coords.shape[-1]):
-        xor_result ^= coords[..., i]*primes[i]
-
-    return torch.tensor((1<<log2_hashmap_size)-1).to(xor_result.device) & xor_result
-
-
-def get_voxel_vertices(xyz, bounding_box, resolution, log2_hashmap_size):
-    '''
-    xyz: 3D coordinates of samples. B x 3
-    bounding_box: min and max x,y,z coordinates of object bbox
-    resolution: number of voxels per axis
-    '''
-    box_min, box_max = bounding_box
-
-    keep_mask = xyz==torch.max(torch.min(xyz, box_max), box_min)
-    if not torch.all(xyz <= box_max) or not torch.all(xyz >= box_min):
-        # print("ALERT: some points are outside bounding box. Clipping them!")
-        xyz = torch.clamp(xyz, min=box_min, max=box_max)
-
-    grid_size = (box_max-box_min)/resolution
-    
-    bottom_left_idx = torch.floor((xyz-box_min)/grid_size).int()
-    voxel_min_vertex = bottom_left_idx*grid_size + box_min
-    voxel_max_vertex = voxel_min_vertex + torch.tensor([1.0,1.0,1.0])*grid_size
-
-    voxel_indices = bottom_left_idx.unsqueeze(1) + BOX_OFFSETS
-    hashed_voxel_indices = hash(voxel_indices, log2_hashmap_size)
-
-    return voxel_min_vertex, voxel_max_vertex, hashed_voxel_indices, keep_mask
-
 
 class HashEmbedder(nn.Module):
-    def __init__(self, bounding_box=torch.tensor([[0,1],[0,1],[0,1]], device='cuda'), n_levels=16, n_features_per_level=2,\
-                log2_hashmap_size=19, base_resolution=16, finest_resolution=512):
+    def __init__(self, bounding_box=torch.tensor([[0,0,0],[1,1,1]]), n_levels=16, n_features_per_level=2,\
+                log2_hashmap_size=19, base_resolution=16, finest_resolution=512,
+                BOX_OFFSETS = torch.tensor([[[i,j,k] for i in [0, 1] for j in [0, 1] for k in [0, 1]]])
+                ):
         super(HashEmbedder, self).__init__()
-        self.bounding_box = bounding_box
+        self.register_buffer('bounding_box', bounding_box)
         self.n_levels = n_levels
         self.n_features_per_level = n_features_per_level
         self.log2_hashmap_size = log2_hashmap_size
-        self.base_resolution = torch.tensor(base_resolution)
-        self.finest_resolution = torch.tensor(finest_resolution)
-        self.out_dim = self.n_levels * self.n_features_per_level
+        self.register_buffer('base_resolution', torch.tensor(base_resolution, dtype=torch.float32))
+        self.register_buffer('finest_resolution', torch.tensor(finest_resolution, dtype=torch.float32))
+        self.n_output_dims = self.n_levels * self.n_features_per_level
 
-        self.b = torch.exp((torch.log(self.finest_resolution)-torch.log(self.base_resolution))/(n_levels-1))
+        self.register_buffer('b', torch.exp((torch.log(self.finest_resolution)-torch.log(self.base_resolution))/(n_levels-1)))
+        self.register_buffer('box_offsets', BOX_OFFSETS)
 
         self.embeddings = nn.ModuleList([nn.Embedding(2**self.log2_hashmap_size, \
                                         self.n_features_per_level) for i in range(n_levels)])
@@ -66,6 +28,40 @@ class HashEmbedder(nn.Module):
         for i in range(n_levels):
             nn.init.uniform_(self.embeddings[i].weight, a=-0.0001, b=0.0001)
             # self.embeddings[i].weight.data.zero_()
+
+
+    def hash(self, coords):
+        '''
+        coords: this function can process upto 7 dim coordinates
+        log2T:  logarithm of T w.r.t 2
+        '''
+        primes = [1, 2654435761, 805459861, 3674653429, 2097192037, 1434869437, 2165219737]
+
+        xor_result = torch.zeros_like(coords)[..., 0]
+        for i in range(coords.shape[-1]):
+            xor_result ^= coords[..., i]*primes[i]
+
+        return xor_result & ((1 << self.log2_hashmap_size) - 1)
+
+
+    def get_voxel_vertices(self, xyz, resolution):
+        '''
+        xyz: 3D coordinates of samples. B x 3
+        bounding_box: min and max x,y,z coordinates of object bbox
+        resolution: number of voxels per axis
+        '''
+        box_min, box_max = self.bounding_box[0], self.bounding_box[1]
+
+        grid_size = (box_max-box_min)/resolution
+        
+        bottom_left_idx = torch.floor((xyz-box_min)/grid_size).int()
+        voxel_min_vertex = bottom_left_idx*grid_size + box_min
+        voxel_max_vertex = voxel_min_vertex + torch.tensor([1.0,1.0,1.0], device=xyz.device)*grid_size
+
+        voxel_indices = bottom_left_idx.unsqueeze(1) + self.box_offsets
+        hashed_voxel_indices = self.hash(voxel_indices)
+
+        return voxel_min_vertex, voxel_max_vertex, hashed_voxel_indices
         
 
     def trilinear_interp(self, x, voxel_min_vertex, voxel_max_vertex, voxel_embedds):
@@ -99,17 +95,13 @@ class HashEmbedder(nn.Module):
         x_embedded_all = []
         for i in range(self.n_levels):
             resolution = torch.floor(self.base_resolution * self.b**i)
-            voxel_min_vertex, voxel_max_vertex, hashed_voxel_indices, keep_mask = get_voxel_vertices(\
-                                                x, self.bounding_box, \
-                                                resolution, self.log2_hashmap_size)
-            
+            voxel_min_vertex, voxel_max_vertex, hashed_voxel_indices = self.get_voxel_vertices(x, resolution)             
             voxel_embedds = self.embeddings[i](hashed_voxel_indices)
 
             x_embedded = self.trilinear_interp(x, voxel_min_vertex, voxel_max_vertex, voxel_embedds)
             x_embedded_all.append(x_embedded)
 
-        keep_mask = keep_mask.sum(dim=-1)==keep_mask.shape[-1]
-        return torch.cat(x_embedded_all, dim=-1), keep_mask
+        return torch.cat(x_embedded_all, dim=-1)
 
 
 class SHEncoder(nn.Module):

@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.func import stack_module_state, functional_call, vmap
 
 # Local imports
 from .encodings import get_encoder
@@ -63,6 +64,8 @@ class JointEncoding(nn.Module):
         '''
         Get the decoder of the scene representation
         '''
+        self.tcnn_network = config['decoder'].get('tcnn_network', False)
+        
         if self.uncertainty_flag == 'ensemble' and self.multi_decoder:
             base_seed = torch.initial_seed()
             self.decoder = nn.ModuleList([
@@ -71,10 +74,17 @@ class JointEncoding(nn.Module):
             ])
             self.color_net = None 
             self.sdf_net = None
+            self.decoder_params = None
+            self.decoder_buffers = None
         else:
             self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
             self.color_net = batchify(self.decoder.color_net, None)
             self.sdf_net = batchify(self.decoder.sdf_net, None)
+
+    def update_stacked_decoder(self):
+        if self.uncertainty_flag == 'ensemble' and self.multi_decoder and not self.tcnn_network:
+            self.decoder_params, self.decoder_buffers = stack_module_state(self.decoder)
+
 
     def sdf2weights(self, sdf, z_vals, args=None):
         '''
@@ -147,47 +157,56 @@ class JointEncoding(nn.Module):
         if smoothness:
             x, y, z, _ = query_points.shape 
             inputs_flat = rearrange(query_points, 'x y z d -> (x y z) d')
-            embedded, uncert = self.embed_fn(inputs_flat)
+            embed, uncert = self.embed_fn(inputs_flat)
             if self.uncertainty_flag == 'ensemble':
                 if self.if_extract_mesh:
-                    out = rearrange(embedded.mean(dim=1), '(x y z) d -> x y z d', x=x, y=y, z=z)
+                    out = rearrange(embed.mean(dim=1), '(x y z) d -> x y z d', x=x, y=y, z=z)
                 else:
-                    out = rearrange(embedded, '(x y z) E d -> x y z E d', x=x, y=y, z=z)
+                    out = rearrange(embed, '(x y z) E d -> x y z E d', x=x, y=y, z=z)
             else:
-                out = rearrange(embedded, '(x y z) d -> x y z d', x=x, y=y, z=z)
+                out = rearrange(embed, '(x y z) d -> x y z d', x=x, y=y, z=z)
             return out
 
         # if not smoothness, only used for extract_mesh 
         rys, sams, _ = query_points.shape 
         inputs_flat = rearrange(query_points, 'rys sams d -> (rys sams) d')
-        embedded, uncert = self.embed_fn(inputs_flat)
-        embedded_pos = self.embedpos_fn(inputs_flat)
+        embed, uncert = self.embed_fn(inputs_flat)
+        embed_pos = self.embedpos_fn(inputs_flat)
         if self.uncertainty_flag == 'ensemble':
             if self.multi_decoder:
-                B, E, D = embedded.shape
-                outputs = []
-                for i in range(E):
-                    # Construct input for sdf_net
-                    inp = torch.cat([embedded[:, i, :], embedded_pos], dim=-1)
-                    out_i = batchify(self.decoder[i].sdf_net, None)(inp)
-                    outputs.append(out_i)
-                out = torch.stack(outputs, dim=1) # (B, E, D_out)
+                B, E, D = embed.shape
+                if not self.tcnn_network:
+                    # Use vmap
+                    def fdecoder(params, buffers, embed, embed_pos):
+                        return functional_call(self.decoder[0], (params, buffers), (embed, embed_pos))
+                    embed = rearrange(embed, 'B E D -> E B D')
+                    out = vmap(fdecoder, in_dims=(0, 0, 0, None))(self.decoder_params, self.decoder_buffers, embed, embed_pos)
+                    out = rearrange(out, 'E B C -> B E C')
+                else:
+                    outputs = []
+                    for i in range(E):
+                        # Construct input for sdf_net
+                        inp = torch.cat([embed[:, i, :], embed_pos], dim=-1)
+                        out_i = batchify(self.decoder[i].sdf_net, None)(inp)
+                        outputs.append(out_i)
+                    out = torch.stack(outputs, dim=1) # (B, E, D_out)
+                
                 out_mean = out.mean(dim=1)
                 sdf_var = out[..., :1].var(dim=1)
                 uncert = sdf_var
                 out = out_mean
             else:
-                B, E, D = embedded.shape
-                embed_flat = rearrange(embedded, 'B E D -> (B E) D')
-                embe_pos_flat = repeat(embedded_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
-                out_flat = self.sdf_net(torch.cat([embed_flat, embe_pos_flat], dim=-1))
+                B, E, D = embed.shape
+                embed_flat = rearrange(embed, 'B E D -> (B E) D')
+                embed_pos_flat = repeat(embed_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
+                out_flat = self.sdf_net(torch.cat([embed_flat, embed_pos_flat], dim=-1))
                 out = rearrange(out_flat, '(B E) D -> B E D', E=E)
                 out_mean = out.mean(dim=1)
                 sdf_var = out[..., :1].var(dim=1) #
                 uncert = sdf_var
                 out = out_mean
         else:
-            out = self.sdf_net(torch.cat([embedded, embedded_pos], dim=-1))
+            out = self.sdf_net(torch.cat([embed, embed_pos], dim=-1))
             
         sdf, geo_feat = out[..., :1], out[..., 1:]
         sdf = rearrange(sdf, '(rys sams) d -> rys sams d', rys=rys, sams=sams)
@@ -220,22 +239,31 @@ class JointEncoding(nn.Module):
         '''
         
         embed, uncert = self.embed_fn(query_points)
-        embe_pos = self.embedpos_fn(query_points)
+        embed_pos = self.embedpos_fn(query_points)
         
         if self.uncertainty_flag == 'ensemble':
             if self.multi_decoder:
                 B, E, D = embed.shape
-                outputs = []
-                for i in range(E):
-                    out_i = self.decoder[i](embed[:, i, :], embe_pos)
-                    outputs.append(out_i)
-                output = torch.stack(outputs, dim=1) # (B, E, 4)
+                if not self.tcnn_network:
+                    # Use vmap
+                    def fdecoder(params, buffers, embed, embed_pos):
+                        return functional_call(self.decoder[0], (params, buffers), (embed, embed_pos))
+                    embed = rearrange(embed, 'B E D -> E B D')
+                    output = vmap(fdecoder, in_dims=(0, 0, 0, None))(self.decoder_params, self.decoder_buffers, embed, embed_pos)
+                    output = rearrange(output, 'E B C -> B E C')
+                else:
+                    outputs = []
+                    for i in range(E):
+                        out_i = self.decoder[i](embed[:, i, :], embed_pos)
+                        outputs.append(out_i)
+                    output = torch.stack(outputs, dim=1) # (B, E, 4)
+
                 output_flat = rearrange(output, 'B E C -> (B E) C')
             else:
                 B, E, D = embed.shape
                 embed_flat = rearrange(embed, 'B E D -> (B E) D')
-                embe_pos_flat = repeat(embe_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
-                output_flat = self.decoder(embed_flat, embe_pos_flat) # D=4, (rgb, sdf)
+                embed_pos_flat = repeat(embed_pos, 'B D -> (B E) D', E=E) # repeat for ensmble 
+                output_flat = self.decoder(embed_flat, embed_pos_flat) # D=4, (rgb, sdf)
                 output = rearrange(output_flat, '(B E) D -> B E D', E=E)
             
             if uncert_mask is not None:
@@ -257,10 +285,10 @@ class JointEncoding(nn.Module):
             
         elif self.uncertainty_flag == 'NARUTO':
             return torch.cat(
-                        (self.decoder(embed, embe_pos), uncert),
+                        (self.decoder(embed, embed_pos), uncert),
                         dim=-1)
         else:    
-            return self.decoder(embed, embe_pos)
+            return self.decoder(embed, embed_pos)
     
 
     def run_network(self, inputs, uncert_mask=None):
@@ -280,9 +308,8 @@ class JointEncoding(nn.Module):
             uncert_mask_flat = None
         
         # Normalize the input to [0, 1] (TCNN convention)
-        if self.config['grid']['tcnn_encoding']:
-            inputs_flat = (inputs_flat - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
- 
+        inputs_flat = (inputs_flat - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
+
         outputs_flat = batchify(self.query_color_sdf, None)(inputs_flat, uncert_mask=uncert_mask_flat)
         
         if self.uncertainty_flag == 'ensemble' and not self.if_extract_mesh:

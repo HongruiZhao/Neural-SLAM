@@ -33,6 +33,12 @@ class Mapping():
         self.get_pose_representation()
         self.keyframeDatabase = self.create_kf_database(config)
         self.model = JointEncoding(config, self.bounding_box).to(self.device)
+        # for ensemble with vmap 
+        if (not self.model.tcnn_network) and self.model.uncertainty_flag == 'ensemble':
+            self.model.update_stacked_decoder()
+        if (not self.model.embed_fn.tcnn_encoding) and self.model.uncertainty_flag == 'ensemble':
+            self.model.embed_fn.update_stacked_encoding()
+
         self.create_optimizer()
 
         self.total_loss = []
@@ -218,9 +224,7 @@ class Mapping():
         coords = coordinates(sample_points - 1, 'cpu', flatten=False).float().to(volume)
         pts = (coords + torch.rand((1,1,1,3)).to(volume)) * voxel_size + self.bounding_box[:, 0] + offset
 
-        if self.config['grid']['tcnn_encoding']:
-            pts_tcnn = (pts - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])
-        
+        pts_tcnn = (pts - self.bounding_box[:, 0]) / (self.bounding_box[:, 1] - self.bounding_box[:, 0])        
 
         feat = self.model.query_sdf(pts_tcnn, smoothness=True)
         if feat.ndim == 5: # Ensemble: x, y, z, E, d

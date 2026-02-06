@@ -132,9 +132,9 @@ def extract_mesh(query_fn, config, bounding_box, marching_cube_bound=None, color
     elif color_func is not None and config['mesh']['render_color']:
         print('rendering surface color')
         mesh = trimesh.Trimesh(vertices, triangles, process=False)
-        vertex_normals = torch.from_numpy(mesh.vertex_normals)
+        vertex_normals = torch.from_numpy(mesh.vertex_normals).to(torch.float32)
         fn_color = get_batch_query_fn(color_func, 2, device=bounding_box.device)
-        raw = [fn_color(torch.from_numpy(vertices), vertex_normals,  i, i + chunk).cpu().data.numpy() for i in range(0, vertices.shape[0], chunk)]
+        raw = [fn_color(torch.from_numpy(vertices).to(torch.float32), vertex_normals,  i, i + chunk).cpu().data.numpy() for i in range(0, vertices.shape[0], chunk)]
 
         sh = vertex_normals.shape
         

@@ -2,6 +2,9 @@ import torch
 import numpy as np
 import tinycudann as tcnn
 import torch.nn.functional as F
+from torch.func import stack_module_state, functional_call, vmap
+from .hash_encoding import HashEmbedder
+from einops import rearrange
 
 class HashUncertainty(torch.nn.Module):
     def __init__(self, input_dim=3,
@@ -12,6 +15,8 @@ class HashUncertainty(torch.nn.Module):
                 ):
         super(HashUncertainty, self).__init__()
         self.uncertainty_flag = cfg['grid'].get('uncertainty', 'ensemble')
+        self.tcnn_encoding = cfg['grid'].get('tcnn_encoding', True)
+
         per_level_scale = np.exp2(np.log2(desired_resolution  / base_resolution) / (n_levels - 1))
         encoding_config = {
                 "otype": 'HashGrid',
@@ -28,13 +33,14 @@ class HashUncertainty(torch.nn.Module):
             custom_init = cfg['grid'].get('custom_init', False)
             init_gain = cfg['grid'].get('init_gain', 1.0)
             
-            is_heterogeneous = cfg['grid'].get('heterogeneous', False)
+            self.is_heterogeneous = cfg['grid'].get('heterogeneous', False)
             total_features = n_levels * level_dim
 
             for i in range(cfg['grid'].get('ensemble_size', 5)):
                 current_encoding_config = encoding_config.copy()
                 
-                if is_heterogeneous:
+                # Heterogeneous ensemble logic
+                if self.is_heterogeneous:
                     # Heterogeneous ensemble: vary parameters
                     # 1. Vary level_dim (and n_levels) ensuring constant total_features
                     candidates = [d for d in [2, 4, 8] if (total_features % d == 0) and (total_features // d > 1)]
@@ -63,31 +69,64 @@ class HashUncertainty(torch.nn.Module):
                         "per_level_scale": new_per_level_scale
                     })
 
-                enc = tcnn.Encoding(
-                    n_input_dims=input_dim,
-                    encoding_config=current_encoding_config,
-                    dtype=torch.float,
-                    seed=base_seed + i 
-                )
-                if custom_init:
-                    for param in enc.parameters():
-                        if len(param.shape) == 1:
-                            torch.nn.init.xavier_normal_(param.view(-1, current_encoding_config["n_features_per_level"]), gain=init_gain)
-                        else:
-                            torch.nn.init.xavier_normal_(param, gain=init_gain)
+                if self.tcnn_encoding:
+                    enc = tcnn.Encoding(
+                        n_input_dims=input_dim,
+                        encoding_config=current_encoding_config,
+                        dtype=torch.float,
+                        seed=base_seed + i 
+                    )
+                    if custom_init:
+                        for param in enc.parameters():
+                            if len(param.shape) == 1:
+                                torch.nn.init.xavier_normal_(param.view(-1, current_encoding_config["n_features_per_level"]), gain=init_gain)
+                            else:
+                                torch.nn.init.xavier_normal_(param, gain=init_gain)
+                else:
+                    # Native PyTorch HashGrid
+                    enc = HashEmbedder(
+                        n_levels=current_encoding_config["n_levels"],
+                        n_features_per_level=current_encoding_config["n_features_per_level"],
+                        log2_hashmap_size=current_encoding_config["log2_hashmap_size"],
+                        base_resolution=current_encoding_config["base_resolution"],
+                        finest_resolution=desired_resolution 
+                    )
+                    self.encoding_params = None
+                    self.encoding_buffers = None
+                    if custom_init:
+                         for param in enc.parameters():
+                            if len(param.shape) > 0:
+                                torch.nn.init.xavier_normal_(param.view(-1, current_encoding_config["n_features_per_level"]), gain=init_gain)
+
                 self.embed_ensemble.append(enc)
+                
             self.n_output_dims = self.embed_ensemble[0].n_output_dims
             self.uncertainty_init = cfg['grid'].get('initial_uncert', 1.0e-6)
+           
         else:
-            self.embed = tcnn.Encoding(
-                n_input_dims=input_dim,
-                encoding_config=encoding_config,
-                dtype=torch.float
-            )
+            if self.tcnn_encoding:
+                self.embed = tcnn.Encoding(
+                    n_input_dims=input_dim,
+                    encoding_config=encoding_config,
+                    dtype=torch.float
+                )
+            else:
+                # Single HashEmbedder
+                 self.embed = HashEmbedder(
+                        n_levels=n_levels,
+                        n_features_per_level=level_dim,
+                        log2_hashmap_size=log2_hashmap_size,
+                        base_resolution=base_resolution,
+                        finest_resolution=desired_resolution
+                    )
             self.n_output_dims = self.embed.n_output_dims
 
         self.get_uncert_grid(uncertainty_res)
 
+
+    def update_stacked_encoding(self):
+        if self.uncertainty_flag == 'ensemble' and not self.tcnn_encoding and not self.is_heterogeneous:
+            self.encoding_params, self.encoding_buffers = stack_module_state(self.embed_ensemble)
 
     def get_uncert_grid(self, xyz_dim):
         Nx, Ny, Nz = xyz_dim
@@ -99,7 +138,7 @@ class HashUncertainty(torch.nn.Module):
                 self.initialized = False
                 self.register_buffer('xyz_uncert', torch.zeros([Nx, Ny, Nz]).float())
             else:
-                self.initialized = True
+                self.initialized = True 
                 self.register_buffer('xyz_uncert', torch.ones([Nx, Ny, Nz]).float() * self.uncertainty_init)
         else:
             print('Create Hash Grid with No Uncertainty')
@@ -164,14 +203,23 @@ class HashUncertainty(torch.nn.Module):
         """
         
         if self.uncertainty_flag == 'ensemble':
-            embedded = []
-            for embed in self.embed_ensemble:
-                embedded.append(embed(xyz_sampled))
-            embedded = torch.stack(embedded, dim=1) # (B, E, D)
+            if (not self.tcnn_encoding) and (not self.is_heterogeneous): 
+                # Homogeneous + PyTorch case (use vmap)
+                def fmodel(params, buffers, x):
+                    return functional_call(self.embed_ensemble[0], (params, buffers), (x,))
+                embedded = vmap(fmodel, in_dims=(0, 0, None))(self.encoding_params, self.encoding_buffers, xyz_sampled) 
+                embedded = rearrange(embedded, 'E B D -> B E D')
+                
+            else:
+                embedded = []
+                for embed in self.embed_ensemble:
+                    embedded.append(embed(xyz_sampled))
+                embedded = torch.stack(embedded, dim=1) # (B, E, D)
             
             uncertainty = None # for ensemble, uncertainty is computed at final output
         else:
             embedded = self.embed(xyz_sampled)
+
             if self.uncertainty_flag == 'NARUTO':
                 xyz_sampled_norm = (xyz_sampled*2 - 1).to(torch.float32) # to [-1,1]
                 uncertainty = self.compute_uncert_grid(xyz_sampled_norm)
