@@ -101,9 +101,9 @@ def main():
     base_global_config = 'configs/eval_NSLAM.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
     
-    exp_names = ['Feb4_ensemble3_iter100_Cantwell',
-                 'Feb4_ensemble3_iter100_Eudora',
-                 'Feb4_ensemble3_iter100_Ribera']
+    exp_names = ['Feb4_ensemble3_iter50_Cantwell',
+                 'Feb4_ensemble3_iter50_Eudora',
+                 'Feb4_ensemble3_iter50_Ribera']
     eval_scen_ids = ['no', '392', '639']
     experiments = []
     for i in range(len(exp_names)):
@@ -116,7 +116,7 @@ def main():
             },
             "mapping_overrides": {
                 "grid": { "uncertainty": 'ensemble', 'ensemble_size': 3} ,
-                "mapping":{'replay': True, 'iters':100},
+                "mapping":{'replay': True, 'iters':50},
             },
         })
 
