@@ -516,30 +516,24 @@ class Exploration_Env(habitat.RLEnv):
         return 0.
 
     def get_global_reward(self):
+        curr_explored = self.explored_map*self.explorable_map
+        curr_explored_area = curr_explored.sum()
+        new_area = (curr_explored_area - self.prev_explored_area)*1.
+        total_area = self.explorable_map.sum()
+        new_area_ratio = new_area/total_area
+        self.prev_explored_area = curr_explored_area
+
         if self.args.use_uncertainty_reward and self.uncert_map is not None:
             current_uncert_sum = (self.uncert_map * self.explorable_map).sum()
-            m_reward = self.prev_uncert_sum - current_uncert_sum
-
-            reward_scale = self.explorable_map.sum()
-            m_ratio = m_reward / reward_scale
-            
-            self.prev_uncert_sum = current_uncert_sum
-
+            m_reward = self.prev_uncert_sum - current_uncert_sum # reduction in uncertainty
             m_reward *=  1e-4 # scaled to be similar to area coverage reward 
-
-        else:
-            curr_explored = self.explored_map*self.explorable_map
-            curr_explored_area = curr_explored.sum()
-
-            reward_scale = self.explorable_map.sum()
-            m_reward = (curr_explored_area - self.prev_explored_area)*1.
-            m_ratio = m_reward/reward_scale
+            self.prev_uncert_sum = current_uncert_sum
+        else: 
+            m_reward = new_area # increase in area coverage
             m_reward = m_reward * 25./10000. # converting to m^2
-            self.prev_explored_area = curr_explored_area
-
             m_reward *= 0.02 # Reward Scaling
 
-        return m_reward, m_ratio
+        return m_reward, new_area_ratio
 
     def get_done(self, observations):
         # This function is not used, Habitat-RLEnv requires this function

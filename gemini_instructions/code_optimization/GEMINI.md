@@ -1,0 +1,1 @@
+# Here are the notes for our efforts to make the codes run faster 
