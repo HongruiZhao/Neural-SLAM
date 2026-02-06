@@ -1,8 +1,8 @@
 auto_gpu_config = 0
-num_processes = 5
+num_processes = 7
 debug = 0
 max_episode_length = 1000 #1000 for default
-num_episodes =  2000 # 1250 
+num_episodes =  1429 # 1250*8 
 
 train_local = 0
 train_slam = 0
@@ -28,4 +28,4 @@ obstacle_boundary = 20 # default 5
 use_deterministic_local = 0
 
 dump_location = results/
-exp_name = Feb4_luna_ensemble
+exp_name = Feb5_luna_ensemble_train
