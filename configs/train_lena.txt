@@ -9,7 +9,7 @@ train_slam = 0
 train_global = 1
 use_nslam = 0
 
-load_global = 0 #pretrained_models/model_best.global
+load_global = results/models/Feb5_luna_ensemble_train/model_best.global
 load_local = pretrained_models/model_best.local
 load_slam = pretrained_models/model_best.slam
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
@@ -28,4 +28,4 @@ obstacle_boundary = 20 # default 5
 use_deterministic_local = 0
 
 dump_location = results/
-exp_name = Feb5_luna_ensemble_train
+exp_name = Feb6_luna_ensemble_train
