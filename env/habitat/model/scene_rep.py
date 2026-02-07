@@ -69,13 +69,19 @@ class JointEncoding(nn.Module):
                 ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos, seed=base_seed + i)
                 for i in range(config['grid']['ensemble_size'])
             ])
+            if not config['decoder']['tcnn_network']:
+                for i in range(len(self.decoder)):
+                    self.decoder[i] = torch.compile(self.decoder[i])
             self.color_net = None 
             self.sdf_net = None
         else:
             self.decoder = ColorSDFNet_v2(config, input_ch=self.input_ch, input_ch_pos=self.input_ch_pos)
+            if not config['decoder']['tcnn_network']:
+                self.decoder = torch.compile(self.decoder)
             self.color_net = batchify(self.decoder.color_net, None)
             self.sdf_net = batchify(self.decoder.sdf_net, None)
 
+    @torch.compile
     def sdf2weights(self, sdf, z_vals, args=None):
         '''
         Convert signed distance function to weights.
@@ -98,6 +104,7 @@ class JointEncoding(nn.Module):
         weights = weights * mask
         return weights / (torch.sum(weights, axis=-1, keepdims=True) + 1e-8)
     
+    @torch.compile
     def raw2outputs(self, raw, z_vals, white_bkgd=False):
         '''
         Perform volume rendering using weights computed from sdf.

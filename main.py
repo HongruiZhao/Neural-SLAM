@@ -209,6 +209,7 @@ def main():
                                         }).to(device)
     else:
         raise NotImplementedError
+    
     g_agent = algo.PPO(g_policy, args.clip_param, args.ppo_epoch,
                        args.num_mini_batch, args.value_loss_coef,
                        args.entropy_coef, lr=args.global_lr, eps=args.eps,
@@ -262,6 +263,12 @@ def main():
 
     if not args.train_local and args.use_DD_PPO == 'none':
         l_policy.eval()
+
+    # Apply torch.compile after all load_state_dict calls
+    if hasattr(torch, 'compile'):
+        nslam_module = torch.compile(nslam_module)
+        g_policy = torch.compile(g_policy)
+        l_policy = torch.compile(l_policy)
 
     # Predict map from frame 1:
     # output obstacle map, explored area, and pose
@@ -386,7 +393,6 @@ def main():
 
                 # train with DDPPO local policy
                 else:
-                    assert type(l_policy) == DdppoPolicy
                     l_action = l_policy.plan(np.stack([infos[e]['depth'] for e in range(num_scenes)]) , 
                                             global_goals, planner_pose_inputs, 
                                             l_masks, step, 
@@ -747,7 +753,6 @@ def main():
         if args.use_NeRF_mapping:
             with open(os.path.join(dump_dir, 'uncertainty_history.json'), 'w') as f:
                 json.dump(uncertainty_list, f, indent=4)
-
 
 if __name__ == "__main__":
     print("Starting Neural SLAM Training")
