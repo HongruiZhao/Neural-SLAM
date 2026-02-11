@@ -530,7 +530,7 @@ class Exploration_Env(habitat.RLEnv):
         if self.args.use_uncertainty_reward and self.uncert_map is not None:
             current_uncert_sum = (self.uncert_map * self.explorable_map).sum()
             m_reward = self.prev_uncert_sum - current_uncert_sum # reduction in uncertainty
-            m_reward *=  1e-4 # scaled to be similar to area coverage reward 
+            m_reward *=  1e-1 # scaled to be similar to area coverage reward 
             self.prev_uncert_sum = current_uncert_sum
         else: 
             m_reward = new_area # increase in area coverage

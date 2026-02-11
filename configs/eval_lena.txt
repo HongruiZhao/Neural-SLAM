@@ -1,5 +1,5 @@
 split =  val
-eval =  1 
+eval =  1
 debug = 0
 auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
 num_processes = 1 # 4 processes by default. used when auto_gpu_config is false

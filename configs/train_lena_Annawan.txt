@@ -1,0 +1,32 @@
+auto_gpu_config = 0
+num_processes = 1
+debug = 0
+max_episode_length = 1000
+num_episodes =  500
+eval_scene_id = 400000 # for an Annawan episode
+save_periodic = 10000 # save every 10 episodes
+
+train_local = 0
+train_slam = 0
+train_global = 1
+use_nslam = 0
+
+load_global = 0
+use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
+
+global_arch = lena
+use_NeRF_mapping = 1
+use_uncertainty_reward = 1
+
+num_global_steps = 40 # default 40
+num_mini_batch = 32 # default 32
+
+num_local_steps = 25 # default is 25 
+noisy_odometry = 0
+collision_threshold = 0.001
+obstacle_boundary = 20 # default 5
+use_deterministic_local = 0
+
+dump_location = results/
+exp_name = Feb10_train_Annawan
+
