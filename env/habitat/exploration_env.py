@@ -134,7 +134,9 @@ class Exploration_Env(habitat.RLEnv):
                 self.ax = [plt.subplot2grid((2, 3), (0, 0)),
                            plt.subplot2grid((2, 3), (0, 1)),
                            plt.subplot2grid((2, 3), (0, 2)),
-                           plt.subplot2grid((2, 3), (1, 0), colspan=3)]
+                           plt.subplot2grid((2, 3), (1, 0)),
+                           plt.subplot2grid((2, 3), (1, 1)),
+                           plt.subplot2grid((2, 3), (1, 2))]
             else:
               self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
                                         facecolor="whitesmoke",
@@ -224,6 +226,7 @@ class Exploration_Env(habitat.RLEnv):
         self.trajectory_states = []
         self.accumulated_ratio = 0
         self.uncert_sum_history = []
+        self.reward_history = []
 
 
         if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
@@ -490,6 +493,7 @@ class Exploration_Env(habitat.RLEnv):
             self.info['exp_reward'] = reward # reward per step, no accumulated
             self.info['exp_ratio'] = ratio # ratio per step, no accumulated
             self.accumulated_ratio += ratio
+            self.reward_history.append((self.timestep, reward))
         else:
             self.info['exp_reward'] = None
             self.info['exp_ratio'] = None
@@ -807,6 +811,8 @@ class Exploration_Env(habitat.RLEnv):
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         heuristic_active=heuristic_active,
                         uncert_sum_history=self.uncert_sum_history,
+                        reward_history=self.reward_history,
+                        value_history=inputs['value_history'] if 'value_history' in inputs else None,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
                         gt_map=self.explorable_map)
 
@@ -830,6 +836,8 @@ class Exploration_Env(habitat.RLEnv):
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         heuristic_active=heuristic_active,
                         uncert_sum_history=self.uncert_sum_history,
+                        reward_history=self.reward_history,
+                        value_history=inputs['value_history'] if 'value_history' in inputs else None,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
                         gt_map=self.explorable_map)
 

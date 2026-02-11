@@ -130,7 +130,7 @@ def run_local_planner(num_scenes,
 
 def visualize_map(num_scenes, 
                      global_goals, global_input, planner_pose_inputs,
-                     envs, heuristic=None):
+                     envs, heuristic=None, value_history=None):
     """for visualization
     Args:
         num_scenes: 
@@ -141,6 +141,7 @@ def visualize_map(num_scenes,
             - 1-3 store continuous global agent x(m), y(m), o (deg). 4-7 store local map boundaries (gx1, gx2, gy1, gy2) 
         envs: 
         heuristic: num_scenes length boolean array for whether heuristic is active 
+        value_history: list of (step, value) tuples for each process
     Returns:
 
         """
@@ -151,6 +152,7 @@ def visualize_map(num_scenes,
         p_input['exp_pred'] = global_input[e, 1, :, :].detach().cpu().numpy()
         p_input['pose_pred'] = planner_pose_inputs[e]
         p_input['heuristic_active'] = heuristic[e]
+        p_input['value_history'] = value_history[e] if value_history is not None else None
 
     # Output stores local goals as well as the the ground-truth action
     envs.visualize_map(planner_inputs)

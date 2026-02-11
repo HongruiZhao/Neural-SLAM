@@ -36,6 +36,8 @@ def visualize(fig, ax,
               visualize, print_images, previous_action, accumulated_ratio,
               heuristic_active=None,
               uncert_sum_history=None,
+              reward_history=None,
+              value_history=None,
               uncert_init=1e-6,
               gt_map=None):
     """
@@ -84,13 +86,35 @@ def visualize(fig, ax,
         
         ax[2].set_title('Uncertainty_map', fontsize=15)
 
-        ax[-1].clear()
-        steps, sums = zip(*uncert_sum_history)
-        ax[-1].plot(steps, sums, marker='o')
-        ax[-1].set_title("Uncertainty Mean vs Step")
-        ax[-1].set_xlabel("Step")
-        ax[-1].set_ylabel("Uncertainty Mean")
-        ax[-1].grid(True)
+        # Plot Uncertainty History
+        ax[3].clear()
+        if len(uncert_sum_history)>0:
+            steps, sums = zip(*uncert_sum_history)
+            ax[3].plot(steps, sums, marker='o')
+        ax[3].set_title("Uncertainty Mean vs Step")
+        ax[3].set_xlabel("Step")
+        ax[3].set_ylabel("Uncertainty Mean")
+        ax[3].grid(True)
+
+        # Plot Reward History
+        ax[4].clear()
+        if len(reward_history)>0:
+            steps, rewards = zip(*reward_history)
+            ax[4].plot(steps, rewards, marker='o', color='green')
+        ax[4].set_title("Reward vs Step")
+        ax[4].set_xlabel("Step")
+        ax[4].set_ylabel("Reward")
+        ax[4].grid(True)
+
+        # Plot Value History
+        ax[5].clear()
+        if len(value_history)>0:
+            steps, values = zip(*value_history)
+            ax[5].plot(steps, values, marker='o', color='orange')
+        ax[5].set_title("Value vs Step")
+        ax[5].set_xlabel("Step")
+        ax[5].set_ylabel("Value")
+        ax[5].grid(True)
     # Draw GT agent pose
     agent_size = 8
     x, y, o = gt_pos

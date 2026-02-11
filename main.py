@@ -343,6 +343,9 @@ def main():
     for ep_num in trange(num_episodes, smoothing=0):
         all_accumulated_ratios[ep_num] = []
         uncertainty_list[ep_num] = []
+        g_value_history = [[] for _ in range(num_scenes)]
+        for e in range(num_scenes):
+            g_value_history[e].append((0, g_value[e].item()))
 
         if args.use_DD_PPO != 'none':
             l_policy.reset()
@@ -410,7 +413,8 @@ def main():
             if args.print_images:
                 visualize_map(num_scenes, 
                               global_goals, global_input, planner_pose_inputs,
-                              envs, heuristic=heuristic_tracker._get_stuck())
+                              envs, heuristic=heuristic_tracker._get_stuck(),
+                              value_history=g_value_history)
 
             # --------------------------------------------------------------
             # Apply heuristics
@@ -573,6 +577,8 @@ def main():
                         extras=g_rollouts.extras[g_step + 1],
                         deterministic=False
                     )
+                for e in range(num_scenes):
+                    g_value_history[e].append((step+1, g_value[e].item())) # +1 since reset is the step 0
                 cpu_actions = nn.Sigmoid()(g_action).cpu().numpy()
                 global_goals = [[int(action[0] * local_w),
                                  int(action[1] * local_h)]
