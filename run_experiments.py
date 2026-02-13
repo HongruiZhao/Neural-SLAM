@@ -98,21 +98,36 @@ def run_experiment(exp_config):
 
 def main():
     
-    base_global_config = 'configs/eval_NSLAM.txt'
+    base_global_config = 'configs/eval_lena.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
     
-    exp_names = ['Feb4_ensemble3_iter50_Cantwell',
-                 'Feb4_ensemble3_iter50_Eudora',
-                 'Feb4_ensemble3_iter50_Ribera']
-    eval_scen_ids = ['no', '392', '639']
+    exp_names = ['Feb12_Annawan_eval_10000',
+                 'Feb12_Annawan_eval_50000',
+                 'Feb12_Annawan_eval_100000',
+                 'Feb12_Annawan_eval_250000',
+                 'Feb12_Annawan_eval_400000',
+                 'Feb12_Annawan_eval_500000',
+                ]
+    
+    exp_name = 'Feb10_train_Annawan'
+    loag_global = [f'results/dump/{exp_name}/periodic_10000.global',
+                   f'results/dump/{exp_name}/periodic_50000.global',
+                   f'results/dump/{exp_name}/periodic_100000.global',
+                   f'results/dump/{exp_name}/periodic_250000.global',
+                   f'results/dump/{exp_name}/periodic_400000.global',
+                   f'results/dump/{exp_name}/periodic_500000.global',
+                  ]
+
     experiments = []
     for i in range(len(exp_names)):
         experiments.append({
             "global_config_path": base_global_config,
             "mapping_config_path": base_mapping_config,
             "global_overrides": {
+                "split": "train",
                 "exp_name": exp_names[i],
-                "eval_scene_id": eval_scen_ids[i],
+                "eval_scene_id": 400000,
+                "load_global": loag_global[i],
             },
             "mapping_overrides": {
                 "grid": { "uncertainty": 'ensemble', 'ensemble_size': 3} ,

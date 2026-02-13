@@ -1,19 +1,19 @@
-split =  val
+split =  train
 eval =  1
 debug = 0
 auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
 num_processes = 1 # 4 processes by default. used when auto_gpu_config is false
 max_episode_length = 1000 #1000 for default
 num_episodes = 1
-eval_scene_id = 392 # 392 for Eudora, 639 for Ribera,'no' for no specific scene 
+eval_scene_id = 400000 # 392 for Eudora, 639 for Ribera,'no' for no specific scene 
 
 train_global = 0
 train_local = 0
 train_slam = 0
 use_nslam = 0
 
-load_global = pretrained_models/model_best.global
-#load_global = results/dump/Feb6_luna_ensemble_train/periodic_5500005.global
+#load_global = pretrained_models/model_best.global
+load_global = results/dump/Feb10_train_Annawan/periodic_490000.global
 load_local = pretrained_models/model_best.local
 load_slam = pretrained_models/model_best.slam
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
@@ -30,5 +30,5 @@ obstacle_boundary = 20 # default 5, obstacle map dilation
 print_images = 1
 vis_type = 2 # 2 show GT map, 1 show predicted map
 dump_location = results/
-exp_name = Feb10_Eudora_eval_uncert_rewardValue
+exp_name = Feb12_Annawan_eval_490000
 

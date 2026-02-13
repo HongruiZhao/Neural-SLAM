@@ -241,7 +241,8 @@ def main():
         print("Loading slam {}".format(args.load_slam))
         state_dict = torch.load(args.load_slam,
                                 map_location=lambda storage, loc: storage)
-        nslam_module.load_state_dict(state_dict)
+        nslam_module.load_state_dict({k.replace('_orig_mod.', ''): v
+                                     for k, v in state_dict.items()})
 
     if not args.train_slam:
         nslam_module.eval()
@@ -250,7 +251,8 @@ def main():
         print("Loading global {}".format(args.load_global))
         state_dict = torch.load(args.load_global,
                                 map_location=lambda storage, loc: storage)
-        g_policy.load_state_dict(state_dict)
+        g_policy.load_state_dict({k.replace('_orig_mod.', ''): v
+                                 for k, v in state_dict.items()})
 
     if not args.train_global:
         g_policy.eval()
@@ -259,7 +261,8 @@ def main():
         print("Loading local {}".format(args.load_local))
         state_dict = torch.load(args.load_local,
                                 map_location=lambda storage, loc: storage)
-        l_policy.load_state_dict(state_dict)
+        l_policy.load_state_dict({k.replace('_orig_mod.', ''): v
+                                 for k, v in state_dict.items()})
 
     if not args.train_local and args.use_DD_PPO == 'none':
         l_policy.eval()
