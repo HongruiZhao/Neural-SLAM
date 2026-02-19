@@ -156,3 +156,19 @@ def visualize_map(num_scenes,
 
     # Output stores local goals as well as the the ground-truth action
     envs.visualize_map(planner_inputs)
+
+
+class TensorboardLogger:
+    def __init__(self, writer):
+        self.writer = writer
+        self.stats = {}
+
+    def log(self, tag, value):
+        if tag not in self.stats:
+            self.stats[tag] = []
+        self.stats[tag].append(value)
+
+    def write(self, step):
+        for tag, values in self.stats.items():
+            if len(values) > 0:
+                self.writer.add_scalar(tag, np.mean(values), step)

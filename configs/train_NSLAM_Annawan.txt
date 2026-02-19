@@ -19,13 +19,13 @@ global_arch = NeuralSLAM
 use_NeRF_mapping = 0
 use_uncertainty_reward = 0
 
+# one update per epoch 25*40 = 1000
 num_global_steps = 40 # default 40
-num_mini_batch = 32 # default 32
-
 num_local_steps = 25 # default is 25 
-noisy_odometry = 0
-collision_threshold = 0.001
-obstacle_boundary = 20 # default 5
+num_mini_batch = auto # default 32
+ppo_epoch = 10 # default 4
+use_gae = 1 # default 0
+
 
 dump_location = results/
-exp_name = Feb12_trainNSLAM_Annawan
+exp_name = Feb18_trainNSLAM_Annawan

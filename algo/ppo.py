@@ -45,6 +45,8 @@ class PPO():
         value_loss_epoch = 0
         action_loss_epoch = 0
         dist_entropy_epoch = 0
+        approx_kl_epoch = 0
+        clip_fraction_epoch = 0
 
         for e in range(self.ppo_epoch):
 
@@ -99,10 +101,18 @@ class PPO():
                 action_loss_epoch += action_loss.item()
                 dist_entropy_epoch += dist_entropy.item()
 
+                with torch.no_grad():
+                    approx_kl = (sample['old_action_log_probs'] - action_log_probs).mean()
+                    clip_frac = ((ratio - 1.0).abs() > self.clip_param).float().mean()
+                    approx_kl_epoch += approx_kl.item()
+                    clip_fraction_epoch += clip_frac.item()
+
         num_updates = self.ppo_epoch * self.num_mini_batch
 
         value_loss_epoch /= num_updates
         action_loss_epoch /= num_updates
         dist_entropy_epoch /= num_updates
+        approx_kl_epoch /= num_updates
+        clip_fraction_epoch /= num_updates
 
-        return value_loss_epoch, action_loss_epoch, dist_entropy_epoch
+        return value_loss_epoch, action_loss_epoch, dist_entropy_epoch, approx_kl_epoch, clip_fraction_epoch

@@ -18,7 +18,8 @@ from utils.storage import GlobalRolloutStorage, FIFOMemory
 from utils.optimization import get_optimizer
 from model import RL_Policy, Local_IL_Policy, Neural_SLAM_Module, DdppoPolicy
 from utils.utils_for_main import get_local_map_boundaries, init_map_and_pose, \
-                                 get_map_from_envs, run_local_planner, visualize_map
+                                 get_map_from_envs, run_local_planner, visualize_map, \
+                                 TensorboardLogger
 import algo
 
 import sys
@@ -67,6 +68,7 @@ def main():
 
     # Setup tensorboard 
     writer = SummaryWriter("{}/tensorboard/{}/".format(args.dump_location, args.exp_name))
+    logger = TensorboardLogger(writer)
 
     # Logging and loss variables
     num_scenes = args.num_processes
@@ -74,37 +76,14 @@ def main():
     device = args.device  
     policy_loss = 0
 
-    best_cost = 100000
-    costs = deque(maxlen=1000)
-    exp_costs = deque(maxlen=1000)
-    pose_costs = deque(maxlen=1000)
-
     g_masks = torch.ones(num_scenes).float().to(device)
     l_masks = torch.zeros(num_scenes).float().to(device)
-
-    best_local_loss = np.inf
-    best_g_reward = -np.inf
-
-    g_episode_rewards = deque(maxlen=1000)
-
-    l_action_losses = deque(maxlen=1000)
-
-    g_value_losses = deque(maxlen=1000)
-    g_action_losses = deque(maxlen=1000)
-    g_dist_entropies = deque(maxlen=1000)
-
-    per_step_g_rewards = deque(maxlen=1000)
 
     g_process_rewards = np.zeros((num_scenes))
     accumulated_ratio = np.zeros((num_scenes))
     all_accumulated_ratios = {}
     uncertainty_list = {}
- 
-    episode_area_coverage = deque(maxlen=1000)
-    per_step_area_coverage = deque(maxlen=1000)
 
-    # Starting environments
-    # torch.set_num_threads(1)
     """ 
         create envs
         all the 'computing map for test', semantic warning, 
@@ -543,14 +522,15 @@ def main():
                 g_total_rewards = g_process_rewards * \
                                   (1 - g_masks.cpu().numpy()) # only for done scenes 
                 g_process_rewards *= g_masks.cpu().numpy() # set accumlated rewards to zero for the scenes that are done 
-                per_step_g_rewards.append(np.mean(g_reward.cpu().numpy()))
+                logger.log('reward/step mean', np.mean(g_reward.cpu().numpy()))
 
                 if np.sum(g_total_rewards) != 0:
                     for tr in g_total_rewards:
-                        g_episode_rewards.append(tr) if tr != 0 else None
+                        if tr != 0:
+                            logger.log('reward/ep mean', tr)
                
                 exp_ratio = np.asarray([infos[env_idx]['exp_ratio'] for env_idx in range(num_scenes)]) 
-                per_step_area_coverage.append(np.mean(exp_ratio))
+                logger.log('area coverage/step mean', np.mean(exp_ratio))
                 accumulated_ratio += exp_ratio
                 all_accumulated_ratios[ep_num].append(accumulated_ratio.tolist())
                 done_ratio = accumulated_ratio * (1 - g_masks.cpu().numpy()) # only for done scenes 
@@ -562,7 +542,8 @@ def main():
 
                 if np.sum(done_ratio) != 0:
                     for scene_ratio in done_ratio:
-                        episode_area_coverage.append(scene_ratio) if scene_ratio != 0 else None
+                        if scene_ratio != 0:
+                            logger.log('area coverage/ep mean', scene_ratio)
 
                 # Add samples to global policy storage
                 g_rollouts.insert(
@@ -617,20 +598,16 @@ def main():
                     if args.proj_loss_coeff > 0:
                         proj_loss = F.binary_cross_entropy(b_proj_pred,
                                                            gt_fp_projs)
-                        costs.append(proj_loss.item())
                         loss += args.proj_loss_coeff * proj_loss
 
                     if args.exp_loss_coeff > 0:
                         exp_loss = F.binary_cross_entropy(b_fp_exp_pred,
                                                           gt_fp_explored)
-                        exp_costs.append(exp_loss.item())
                         loss += args.exp_loss_coeff * exp_loss
 
                     if args.pose_loss_coeff > 0:
                         pose_loss = torch.nn.MSELoss()(b_pose_err_pred,
                                                        gt_pose_err)
-                        pose_costs.append(args.pose_loss_coeff *
-                                          pose_loss.item())
                         loss += args.pose_loss_coeff * pose_loss
 
                     if args.train_slam:
@@ -651,7 +628,6 @@ def main():
                 local_optimizer.zero_grad()
                 policy_loss.backward()
                 local_optimizer.step()
-                l_action_losses.append(policy_loss.item())
                 policy_loss = 0
                 local_rec_states = local_rec_states.detach_()
             # ------------------------------------------------------------------
@@ -670,11 +646,13 @@ def main():
 
                     g_rollouts.compute_returns(g_next_value, args.use_gae,
                                                args.gamma, args.tau)
-                    g_value_loss, g_action_loss, g_dist_entropy = \
+                    g_value_loss, g_action_loss, g_dist_entropy, approx_kl, clip_fraction = \
                         g_agent.update(g_rollouts)
-                    g_value_losses.append(g_value_loss)
-                    g_action_losses.append(g_action_loss)
-                    g_dist_entropies.append(g_dist_entropy)
+                    logger.log('loss/value', g_value_loss)
+                    logger.log('loss/action', g_action_loss)
+                    logger.log('loss/dist', g_dist_entropy)
+                    logger.log('info/approx_kl', approx_kl)
+                    logger.log('info/clip_fraction', clip_fraction)
                 g_rollouts.after_update()
             # ------------------------------------------------------------------
 
@@ -685,50 +663,9 @@ def main():
             # ------------------------------------------------------------------
             # Logging
             if total_num_steps % args.log_interval == 0:
-                writer.add_scalar('global reward/step mean', np.mean(per_step_g_rewards), total_num_steps)
-                writer.add_scalar('global reward/ep mean', np.mean(g_episode_rewards), total_num_steps)
-
-                writer.add_scalar('global area coverage/ep mean', 
-                                  np.mean(episode_area_coverage), total_num_steps)
-                writer.add_scalar('global area coverage/step mean', 
-                                  np.mean(per_step_area_coverage), total_num_steps)
-
-                writer.add_scalar('global loss/value', np.mean(g_value_losses), total_num_steps)
-                writer.add_scalar('global loss/action', np.mean(g_action_losses), total_num_steps)
-                writer.add_scalar('global loss/dist', np.mean(g_dist_entropies), total_num_steps)
-
-                #torch.cuda.memory._dump_snapshot( os.path.join(log_dir, "GPU_memory.pickle") )
+                logger.write(total_num_steps)
 
             # ------------------------------------------------------------------
-
-            # ------------------------------------------------------------------
-            # Save best models
-            if (total_num_steps * num_scenes) % args.save_interval < \
-                    num_scenes:
-
-                # Save Neural SLAM Model
-                if len(costs) >= 1000 and np.mean(costs) < best_cost \
-                        and not args.eval:
-                    best_cost = np.mean(costs)
-                    torch.save(nslam_module.state_dict(),
-                               os.path.join(log_dir, "model_best.slam"))
-
-                # Save Local Policy Model
-                if len(l_action_losses) >= 100 and \
-                        (np.mean(l_action_losses) <= best_local_loss) \
-                        and not args.eval:
-                    torch.save(l_policy.state_dict(),
-                               os.path.join(log_dir, "model_best.local"))
-
-                    best_local_loss = np.mean(l_action_losses)
-
-                # Save Global Policy Model
-                if len(g_episode_rewards) >= 100 and \
-                        (np.mean(g_episode_rewards) >= best_g_reward) \
-                        and not args.eval:
-                    torch.save(g_policy.state_dict(),
-                               os.path.join(log_dir, "model_best.global"))
-                    best_g_reward = np.mean(g_episode_rewards)
 
             # Save periodic models
             if (total_num_steps * num_scenes) % args.save_periodic < \

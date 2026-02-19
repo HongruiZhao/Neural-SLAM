@@ -98,26 +98,14 @@ def run_experiment(exp_config):
 
 def main():
     
-    base_global_config = 'configs/eval_lena.txt'
+    base_global_config = 'configs/eval_NSLAM_Annawan.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
+    eval_name = 'Feb17_evalNSLAM_Annawan'
+    exp_name = 'Feb12_trainNSLAM_Annawan'
+    step = [220000, 240000, 250000]
     
-    exp_names = ['Feb12_Annawan_eval_10000',
-                 'Feb12_Annawan_eval_50000',
-                 'Feb12_Annawan_eval_100000',
-                 'Feb12_Annawan_eval_250000',
-                 'Feb12_Annawan_eval_400000',
-                 'Feb12_Annawan_eval_500000',
-                ]
-    
-    exp_name = 'Feb10_train_Annawan'
-    loag_global = [f'results/dump/{exp_name}/periodic_10000.global',
-                   f'results/dump/{exp_name}/periodic_50000.global',
-                   f'results/dump/{exp_name}/periodic_100000.global',
-                   f'results/dump/{exp_name}/periodic_250000.global',
-                   f'results/dump/{exp_name}/periodic_400000.global',
-                   f'results/dump/{exp_name}/periodic_500000.global',
-                  ]
-
+    exp_names = [ f'{eval_name}_{s}' for s in step ]
+    loag_global = [f'results/dump/{exp_name}/periodic_{s}.global' for s in step]
     experiments = []
     for i in range(len(exp_names)):
         experiments.append({
