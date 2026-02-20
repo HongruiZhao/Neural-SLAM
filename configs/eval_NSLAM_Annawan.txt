@@ -12,15 +12,14 @@ train_local = 0
 train_slam = 0
 use_nslam = 0
 
-load_global = results/dump/Feb17_trainNSLAM_Annawan/periodic_490000.global
-load_local = pretrained_models/model_best.local
-load_slam = pretrained_models/model_best.slam
+load_global = 0
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
 
 global_arch = NeuralSLAM
 use_NeRF_mapping = 1
 
 num_local_steps = 25 # default 25 
+
 noisy_odometry = 0
 collision_threshold = 0.001
 obstacle_boundary = 20 # default 5

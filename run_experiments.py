@@ -100,9 +100,9 @@ def main():
     
     base_global_config = 'configs/eval_NSLAM_Annawan.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
-    eval_name = 'Feb17_evalNSLAM_Annawan'
-    exp_name = 'Feb12_trainNSLAM_Annawan'
-    step = [220000, 240000, 250000]
+    eval_name = 'Feb18_evalNSLAM_Annawan'
+    exp_name = 'Feb18_trainNSLAM_Annawan'
+    step = [100000, 200000, 300000, 490000]
     
     exp_names = [ f'{eval_name}_{s}' for s in step ]
     loag_global = [f'results/dump/{exp_name}/periodic_{s}.global' for s in step]
