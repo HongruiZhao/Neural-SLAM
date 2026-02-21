@@ -1,5 +1,4 @@
-# Improve visualization during the evaluation 
-* Now when `uncert_map` is not None, we display the "Uncertainty Mean vs Step" on the second row of the plot in @env/habitat/utils/visualizations.py.
-* I want to add two more subplots to the second row:
-    * **reward per stgep**: this is returned by `self.get_global_reward()` in @env/habitat/exploration_env.py and the latest value is saved into `self.info['exp_reward']`. You may want to create a new list at `reset` to store the history of per step reward. Keep in mind that the reward is obatined every `args.num_local_steps`, in comparison `self.uncert_sum_history` is saved for every step. So you may want to also save the timestep along with the reward to plot them correctly. 
-    * **value function output**: this is returned as `g_value` in @main.py. You can save them into a list and pass it to `visualize_map` defined in in @utils/utils_for_main.py. Keep in mind that the `g_value` is also obatined every `args.num_local_steps`.
+* You need to mainly look at @main.py and @env/habitat/exploration_env.py
+* In addition to `self.full_map`, also visualize `self.local_map` of @utils/mapping_handler.py.
+* Concatenate the four channels of `self.full_map` and `self.local_map` along the width dimension so we can display them as one image. 
+* Now the visualization should have four rows, the frist and the second row would have three columns, while the third and the fourth row only have one colum, but they should all have the same width 

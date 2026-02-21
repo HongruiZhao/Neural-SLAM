@@ -39,7 +39,9 @@ def visualize(fig, ax,
               reward_history=None,
               value_history=None,
               uncert_init=1e-6,
-              gt_map=None):
+              gt_map=None,
+              full_map=None,
+              local_map=None):
     """
     Args:
         rank: Thread No.
@@ -65,7 +67,7 @@ def visualize(fig, ax,
         ax[1].imshow(grid, origin='lower') # to be right hand coordinate
         ax[1].set_title(title, fontsize=15, color='red' if heuristic_active else 'black')
     else:
-        for i in range(3):
+        for i in range(len(ax)):
             ax[i].clear()
             ax[i].set_yticks([])
             ax[i].set_xticks([])
@@ -87,7 +89,6 @@ def visualize(fig, ax,
         ax[2].set_title('Uncertainty_map', fontsize=15)
 
         # Plot Uncertainty History
-        ax[3].clear()
         if len(uncert_sum_history)>0:
             steps, sums = zip(*uncert_sum_history)
             ax[3].plot(steps, sums, marker='o')
@@ -97,7 +98,6 @@ def visualize(fig, ax,
         ax[3].grid(True)
 
         # Plot Reward History
-        ax[4].clear()
         if len(reward_history)>0:
             steps, rewards = zip(*reward_history)
             ax[4].plot(steps, rewards, marker='o', color='green')
@@ -107,14 +107,26 @@ def visualize(fig, ax,
         ax[4].grid(True)
 
         # Plot Value History
-        ax[5].clear()
-        if len(value_history)>0:
+        if value_history is not None and len(value_history)>0:
             steps, values = zip(*value_history)
             ax[5].plot(steps, values, marker='o', color='orange')
         ax[5].set_title("Value vs Step")
         ax[5].set_xlabel("Step")
         ax[5].set_ylabel("Value")
         ax[5].grid(True)
+
+        if full_map is not None:
+            # Concatenate the four channels along width dimension
+            full_map_cat = np.concatenate([full_map[i] for i in range(4)], axis=1)
+            ax[6].imshow(full_map_cat, origin='lower')
+            ax[6].set_title('Full Map Channels (Obs, Exp/Unc, Agent, Visited)')
+
+        if local_map is not None:
+            # Concatenate the four channels along width dimension
+            local_map_cat = np.concatenate([local_map[i] for i in range(4)], axis=1)
+            ax[7].imshow(local_map_cat, origin='lower')
+            ax[7].set_title('Local Map Channels (Obs, Exp/Unc, Agent, Visited)')
+
     # Draw GT agent pose
     agent_size = 8
     x, y, o = gt_pos

@@ -1,0 +1,2 @@
+* In @utils/mapping_handler.py, do:
+    * Add `get_local_map_boundaries` and `init_map_and_pose` into the class `MappingHandler` to reduce the number of inputs needed to be passed and utilize the variables of the class.

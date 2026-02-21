@@ -128,15 +128,17 @@ class Exploration_Env(habitat.RLEnv):
         #                                         num="Thread {}".format(rank))
         if args.print_images or args.visualize:
             if args.use_NeRF_mapping:
-                self.figure = plt.figure(figsize=(9*16/9, 9),
+                self.figure = plt.figure(figsize=(12, 16),
                                     facecolor="whitesmoke",
                                     num="Thread {}".format(rank))
-                self.ax = [plt.subplot2grid((2, 3), (0, 0)),
-                           plt.subplot2grid((2, 3), (0, 1)),
-                           plt.subplot2grid((2, 3), (0, 2)),
-                           plt.subplot2grid((2, 3), (1, 0)),
-                           plt.subplot2grid((2, 3), (1, 1)),
-                           plt.subplot2grid((2, 3), (1, 2))]
+                self.ax = [plt.subplot2grid((4, 3), (0, 0)),
+                           plt.subplot2grid((4, 3), (0, 1)),
+                           plt.subplot2grid((4, 3), (0, 2)),
+                           plt.subplot2grid((4, 3), (1, 0)),
+                           plt.subplot2grid((4, 3), (1, 1)),
+                           plt.subplot2grid((4, 3), (1, 2)),
+                           plt.subplot2grid((4, 3), (2, 0), colspan=3),
+                           plt.subplot2grid((4, 3), (3, 0), colspan=3)]
             else:
               self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
                                         facecolor="whitesmoke",
@@ -785,6 +787,8 @@ class Exploration_Env(habitat.RLEnv):
         stg = goal # TODO: visualization for local short-term goal?
         start_x_gt, start_y_gt, start_o_gt = self.curr_loc_gt
         heuristic_active=inputs['heuristic_active'] if 'heuristic_active' in inputs else None
+        full_map = inputs['full_map'] if 'full_map' in inputs else None
+        local_map = inputs['local_map'] if 'local_map' in inputs else None
 
         if args.vis_type == 1: # Visualize predicted map and pose
             vis_grid = vu.get_colored_map(np.rint(map_pred),
@@ -814,7 +818,9 @@ class Exploration_Env(habitat.RLEnv):
                         reward_history=self.reward_history,
                         value_history=inputs['value_history'] if 'value_history' in inputs else None,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
-                        gt_map=self.explorable_map)
+                        gt_map=self.explorable_map,
+                        full_map=full_map,
+                        local_map=local_map)
 
         else: # Visualize ground-truth map and pose
             vis_grid = vu.get_colored_map(self.map,
@@ -839,7 +845,9 @@ class Exploration_Env(habitat.RLEnv):
                         reward_history=self.reward_history,
                         value_history=inputs['value_history'] if 'value_history' in inputs else None,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
-                        gt_map=self.explorable_map)
+                        gt_map=self.explorable_map,
+                        full_map=full_map,
+                        local_map=local_map)
 
 
     def _get_gt_map(self, full_map_size):

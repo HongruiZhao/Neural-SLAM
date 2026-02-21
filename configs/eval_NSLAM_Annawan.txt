@@ -8,14 +8,11 @@ num_episodes = 1
 eval_scene_id = 400000 # Annawan
 
 train_global = 0
-train_local = 0
-train_slam = 0
-use_nslam = 0
 
-load_global = 0
+load_global = results/dump/Feb18_trainNSLAM_Annawan/periodic_20000.global
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
 
-global_arch = NeuralSLAM
+global_arch = lena #NeuralSLAM 
 use_NeRF_mapping = 1
 
 num_local_steps = 25 # default 25 
@@ -23,9 +20,8 @@ num_local_steps = 25 # default 25
 noisy_odometry = 0
 collision_threshold = 0.001
 obstacle_boundary = 20 # default 5
-use_deterministic_local = 0
 
 print_images = 1
 vis_type = 2 # 2 show GT map, 1 show predicted map
 dump_location = results/
-exp_name = Feb18_evalNSLAM_Annawan_490000
+exp_name = local_vs_global_map

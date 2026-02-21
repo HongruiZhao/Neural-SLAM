@@ -2,7 +2,7 @@ auto_gpu_config = 0
 num_processes = 1
 debug = 0
 max_episode_length = 1000
-num_episodes =  500
+num_episodes =  10
 eval_scene_id = 400000 # for an Annawan episode
 save_periodic = 10000 # save every 10 episodes
 
@@ -28,4 +28,4 @@ use_gae = 1 # default 0
 
 
 dump_location = results/
-exp_name = Feb18_trainNSLAM_Annawan
+exp_name = Feb20_trainNSLAM_Annawan
