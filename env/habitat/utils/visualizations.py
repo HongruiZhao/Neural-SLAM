@@ -12,6 +12,7 @@ import matplotlib.patches as mpatches
 
 import seaborn as sns
 import skimage
+from einops import rearrange
 
 # define colors in hex
 eva_purple1 = "#BB84EBF2"
@@ -116,14 +117,24 @@ def visualize(fig, ax,
         ax[5].grid(True)
 
         if full_map is not None:
+            # Normalize the second channel (index 1)
+            full_map_to_draw = full_map.copy()
+            f_max = full_map_to_draw[1].max()
+            if f_max > 0:
+                full_map_to_draw[1] /= f_max
             # Concatenate the four channels along width dimension
-            full_map_cat = np.concatenate([full_map[i] for i in range(4)], axis=1)
+            full_map_cat = rearrange(full_map_to_draw, 'c h w -> h (c w)')
             ax[6].imshow(full_map_cat, origin='lower')
             ax[6].set_title('Full Map Channels (Obs, Exp/Unc, Agent, Visited)')
 
         if local_map is not None:
+            # Normalize the second channel (index 1)
+            local_map_to_draw = local_map.copy()
+            l_max = local_map_to_draw[1].max()
+            if l_max > 0:
+                local_map_to_draw[1] /= l_max
             # Concatenate the four channels along width dimension
-            local_map_cat = np.concatenate([local_map[i] for i in range(4)], axis=1)
+            local_map_cat = rearrange(local_map_to_draw, 'c h w -> h (c w)')
             ax[7].imshow(local_map_cat, origin='lower')
             ax[7].set_title('Local Map Channels (Obs, Exp/Unc, Agent, Visited)')
 
