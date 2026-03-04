@@ -70,10 +70,6 @@ def visualize(fig, ax,
     else:
         for i in range(len(ax)):
             ax[i].clear()
-            ax[i].set_yticks([])
-            ax[i].set_xticks([])
-            ax[i].set_yticklabels([])
-            ax[i].set_xticklabels([])
 
         ax[0].imshow(img)
         ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
@@ -116,7 +112,7 @@ def visualize(fig, ax,
         ax[5].set_ylabel("Value")
         ax[5].grid(True)
 
-        if full_map is not None:
+        if len(ax) > 6 and full_map is not None:
             # Normalize the second channel (index 1)
             full_map_to_draw = full_map.copy()
             f_max = full_map_to_draw[1].max()
@@ -127,7 +123,7 @@ def visualize(fig, ax,
             ax[6].imshow(full_map_cat, origin='lower')
             ax[6].set_title('Full Map Channels (Obs, Exp/Unc, Agent, Visited)')
 
-        if local_map is not None:
+        if len(ax) > 7 and local_map is not None:
             # Normalize the second channel (index 1)
             local_map_to_draw = local_map.copy()
             l_max = local_map_to_draw[1].max()

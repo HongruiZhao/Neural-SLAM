@@ -65,6 +65,8 @@ def get_args():
                         help='1: Show predicted map, 2: Show GT map')
     parser.add_argument('--print_images', type=int, default=0,
                         help='1: save visualization as images')
+    parser.add_argument('--vis_full_local_maps', type=int, default=1,
+                        help='1: show full and local maps (third and fourth rows)')
     parser.add_argument('--save_trajectory_data', type=str, default="0")
     parser.add_argument('--eval_scene_id', type=str, default="no",
                         help="""scene id for evaluation""")
@@ -196,6 +198,8 @@ def get_args():
     parser.add_argument('--use_ffm_planner', type=int, default=0)
     parser.add_argument('--use_uncertainty_reward', type=int, default=0,
                         help='use uncertainty reduction as reward')
+    parser.add_argument('--goal_dist_coeff', type=float, default=0.1,
+                        help='coefficient for the global goal distance penalty')
 
     # heuristic type and parameters
     parser.add_argument('--heuristic_strategy', type=str, default="none",

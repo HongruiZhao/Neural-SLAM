@@ -170,6 +170,25 @@ class GlobalPolicyHandler:
         return global_goals
 
 
+    def get_global_goals_m(self, global_goals, planner_pose_inputs):
+        """
+        Transform global pixel goals to global coordinates in meters.
+        Args:
+            global_goals: List of [x, y] pixel coordinates in local window.
+            planner_pose_inputs: Matrix containing local map boundaries (gx1, gy1 at indices 3, 5).
+        Returns:
+            List of [x, y] coordinates in meters.
+        """
+        global_goals = np.array(global_goals)
+        # goal_x = (pixel_x + gx1) * map_resolution / 100
+        goal_x = (global_goals[:, 0] + planner_pose_inputs[:, 3]) * self.args.map_resolution / 100.0
+        # goal_y = (pixel_y + gy1) * map_resolution / 100
+        goal_y = (global_goals[:, 1] + planner_pose_inputs[:, 5]) * self.args.map_resolution / 100.0
+        
+        global_goals_m = np.stack([goal_x, goal_y], axis=1).tolist()
+        return global_goals_m
+
+
     def insert_rollout(self, obs: torch.Tensor, rewards: torch.Tensor, extras: torch.Tensor):
         """
         Insert samples into global rollout storage and reset masks.
@@ -201,6 +220,16 @@ class GlobalPolicyHandler:
         g_total_rewards = self.g_process_rewards * (1 - self.g_masks.cpu().numpy())
         self.g_process_rewards *= self.g_masks.cpu().numpy()
         self.logger.log('reward/step mean', np.mean(g_reward.cpu().numpy()))
+
+        # Log individual reward components
+        for key in ['uncert_reward', 'area_reward', 'dist_penalty']:
+            component_values = []
+            for env_idx in range(self.num_scenes):
+                if infos[env_idx]['reward_components'] is not None and \
+                   key in infos[env_idx]['reward_components']:
+                    component_values.append(infos[env_idx]['reward_components'][key])
+            if len(component_values) > 0:
+                self.logger.log(f'reward_components/{key}', np.mean(component_values))
 
         if np.sum(g_total_rewards) != 0:
             for tr in g_total_rewards:

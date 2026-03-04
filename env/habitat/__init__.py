@@ -106,12 +106,14 @@ def construct_envs(args):
             make_env_fn=make_env_fn,
             env_fn_args=tuple(zip(args_list, env_configs, baseline_configs, 
                                   range(args.num_processes))),
+            auto_reset_done=False
     )
     else:
         envs = VectorEnv(
             make_env_fn=make_env_fn,
             env_fn_args=tuple(zip(args_list, env_configs, baseline_configs, 
                                   range(args.num_processes))),
+            auto_reset_done=False
         )
 
 

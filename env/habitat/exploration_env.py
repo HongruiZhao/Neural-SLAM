@@ -128,17 +128,28 @@ class Exploration_Env(habitat.RLEnv):
         #                                         num="Thread {}".format(rank))
         if args.print_images or args.visualize:
             if args.use_NeRF_mapping:
-                self.figure = plt.figure(figsize=(12, 16),
-                                    facecolor="whitesmoke",
-                                    num="Thread {}".format(rank))
-                self.ax = [plt.subplot2grid((4, 3), (0, 0)),
-                           plt.subplot2grid((4, 3), (0, 1)),
-                           plt.subplot2grid((4, 3), (0, 2)),
-                           plt.subplot2grid((4, 3), (1, 0)),
-                           plt.subplot2grid((4, 3), (1, 1)),
-                           plt.subplot2grid((4, 3), (1, 2)),
-                           plt.subplot2grid((4, 3), (2, 0), colspan=3),
-                           plt.subplot2grid((4, 3), (3, 0), colspan=3)]
+                if args.vis_full_local_maps:
+                    self.figure = plt.figure(figsize=(12, 16),
+                                        facecolor="whitesmoke",
+                                        num="Thread {}".format(rank))
+                    self.ax = [plt.subplot2grid((4, 3), (0, 0)),
+                               plt.subplot2grid((4, 3), (0, 1)),
+                               plt.subplot2grid((4, 3), (0, 2)),
+                               plt.subplot2grid((4, 3), (1, 0)),
+                               plt.subplot2grid((4, 3), (1, 1)),
+                               plt.subplot2grid((4, 3), (1, 2)),
+                               plt.subplot2grid((4, 3), (2, 0), colspan=3),
+                               plt.subplot2grid((4, 3), (3, 0), colspan=3)]
+                else:
+                    self.figure = plt.figure(figsize=(12, 8),
+                                        facecolor="whitesmoke",
+                                        num="Thread {}".format(rank))
+                    self.ax = [plt.subplot2grid((2, 3), (0, 0)),
+                               plt.subplot2grid((2, 3), (0, 1)),
+                               plt.subplot2grid((2, 3), (0, 2)),
+                               plt.subplot2grid((2, 3), (1, 0)),
+                               plt.subplot2grid((2, 3), (1, 1)),
+                               plt.subplot2grid((2, 3), (1, 2))]
             else:
               self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
                                         facecolor="whitesmoke",
@@ -229,6 +240,7 @@ class Exploration_Env(habitat.RLEnv):
         self.accumulated_ratio = 0
         self.uncert_sum_history = []
         self.reward_history = []
+        self.global_goal_m = None
 
 
         if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
@@ -335,6 +347,7 @@ class Exploration_Env(habitat.RLEnv):
             # Set info
             self.info = {
                 'time': self.timestep,
+                'episode_no': self.episode_no,
                 'fp_proj': fp_proj,
                 'fp_explored': fp_explored,
                 'sensor_pose': [0., 0., 0.],
@@ -491,14 +504,16 @@ class Exploration_Env(habitat.RLEnv):
                                 self.curr_loc_gt[2]]
         self.info['depth'] = obs['depth'].transpose(2, 0, 1)
         if self.timestep%args.num_local_steps==0:
-            reward, ratio = self.get_global_reward()
+            reward, ratio, reward_components = self.get_global_reward()
             self.info['exp_reward'] = reward # reward per step, no accumulated
             self.info['exp_ratio'] = ratio # ratio per step, no accumulated
+            self.info['reward_components'] = reward_components
             self.accumulated_ratio += ratio
             self.reward_history.append((self.timestep, reward))
         else:
             self.info['exp_reward'] = None
             self.info['exp_ratio'] = None
+            self.info['reward_components'] = None
         if args.use_NeRF_mapping:
             self.info['uncertainty'] =  self.uncert_sum_history[-1][-1]
 
@@ -521,6 +536,9 @@ class Exploration_Env(habitat.RLEnv):
         # This function is not used, Habitat-RLEnv requires this function
         return 0.
 
+    def set_global_goal(self, global_goal_m):
+        self.global_goal_m = global_goal_m
+
     def get_global_reward(self):
         curr_explored = self.explored_map*self.explorable_map
         curr_explored_area = curr_explored.sum()
@@ -529,17 +547,32 @@ class Exploration_Env(habitat.RLEnv):
         new_area_ratio = new_area/total_area
         self.prev_explored_area = curr_explored_area
 
+        reward_components = {}
         if self.args.use_uncertainty_reward and self.uncert_map is not None:
             current_uncert_sum = (self.uncert_map * self.explorable_map).sum()
-            m_reward = self.prev_uncert_sum - current_uncert_sum # reduction in uncertainty
-            m_reward *=  1e-1 # scaled to be similar to area coverage reward 
+            uncert_reward = self.prev_uncert_sum - current_uncert_sum # reduction in uncertainty
+            uncert_reward *=  1e-1 # scaled to be similar to area coverage reward 
             self.prev_uncert_sum = current_uncert_sum
+            m_reward = uncert_reward
+            reward_components['uncert_reward'] = uncert_reward
         else: 
-            m_reward = new_area # increase in area coverage
-            m_reward = m_reward * 25./10000. # converting to m^2
-            m_reward *= 0.02 # Reward Scaling
+            area_reward = new_area # increase in area coverage
+            area_reward = area_reward * 25./10000. # converting to m^2
+            area_reward *= 0.02 # Reward Scaling
+            m_reward = area_reward
+            reward_components['area_reward'] = area_reward
 
-        return m_reward, new_area_ratio
+        if self.global_goal_m is not None:
+            curr_x, curr_y = self.curr_loc_gt[0], self.curr_loc_gt[1]
+            goal_x, goal_y = self.global_goal_m
+            l1_dist = abs(curr_x - goal_x) + abs(curr_y - goal_y)
+            
+            window_size_m = (self.map_size_cm / 100.0) / self.args.global_downscaling
+            dist_penalty = - (l1_dist / window_size_m) * self.args.goal_dist_coeff
+            m_reward += dist_penalty
+            reward_components['dist_penalty'] = dist_penalty
+
+        return m_reward, new_area_ratio, reward_components
 
     def get_done(self, observations):
         # This function is not used, Habitat-RLEnv requires this function

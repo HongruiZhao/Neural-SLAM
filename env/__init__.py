@@ -63,6 +63,10 @@ class VecPyTorch():
         stg = torch.from_numpy(stg).float()
         return stg
 
+    def set_global_goals(self, global_goals_m):
+        function_args_list = [{'global_goal_m': g} for g in global_goals_m]
+        self.venv.call(['set_global_goal']*self.num_envs, function_args_list)
+
     def visualize_map(self, inputs):
         function_args_list = [{'inputs': d} for d in inputs]
         self.venv.call(['visualize_map']*self.num_envs, function_args_list)

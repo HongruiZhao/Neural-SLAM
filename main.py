@@ -40,8 +40,7 @@ def main():
     device = args.device  
 
     envs = make_vec_envs(args)
-    _, infos = envs.reset()
-
+    
     m_handler = MappingHandler(args, num_scenes, device)
     g_handler = GlobalPolicyHandler(args, num_scenes, device, logger)
     l_handler = LocalPolicyHandler(args, num_scenes, device)
@@ -53,34 +52,37 @@ def main():
     if not args.train_global:
         g_handler.eval()
 
-    # Initializing maps
-    m_handler._init_map_and_pose()
-
-    # Predict map from frame 1 and compute global input
-    m_handler.get_full_map_pose(infos, is_global_step=True)
-    m_handler.get_local_map_pose()
-    global_input, global_orientation = m_handler.get_global_input()
-
-    # Initialize rollout storage
-    g_handler.init_rollout(global_input, global_orientation)
-
-    # Run Global Policy (global_goals = Long-Term Goal)
-    global_goals = g_handler.act(0)
-
-    total_num_steps = -1
+    total_num_steps = 0
 
     # Initialize variables to check for stuck agents
     heuristic_tracker = HeuristicTracker(args, num_scenes)
 
 
     for ep_num in trange(num_episodes, smoothing=0):
+        # Manual reset at the start of each episode
+        _, infos = envs.reset()
+
+        # Initializing maps and pose for the new episode
+        m_handler._init_map_and_pose()
+        
+        # Predict map from frame 1 and compute global input
+        m_handler.get_full_map_pose(infos, is_global_step=True)
+        m_handler.get_local_map_pose()
+        global_input, global_orientation = m_handler.get_global_input()
+
+        # Initialize rollout storage and reset handlers
+        g_handler.init_rollout(global_input, global_orientation)
         g_handler.reset_episode(ep_num)
+        # Run Global Policy (global_goals = Long-Term Goal)
+        global_goals = g_handler.act(0)
+        global_goals_m = g_handler.get_global_goals_m(global_goals, m_handler.planner_pose_inputs)
+        envs.set_global_goals(global_goals_m)
+        
         g_handler.log_value(0)
         l_handler.reset()
 
-        for step in trange(args.max_episode_length, smoothing=0):
-            total_num_steps += 1
 
+        for step in trange(args.max_episode_length, smoothing=0):
             g_step = (step // args.num_local_steps) % args.num_global_steps
             l_step = step % args.num_local_steps
 
@@ -106,10 +108,6 @@ def main():
             _, _, done, infos = envs.step(l_action)
             g_handler.update_masks(done)
 
-            # Reinitialize variables when episode ends
-            if step == args.max_episode_length - 1:  # Last episode step
-                m_handler._init_map_and_pose()
-
             # Update mapping
             is_global_step = (l_step == args.num_local_steps - 1)
             m_handler.get_full_map_pose(infos, is_global_step=is_global_step)
@@ -122,6 +120,9 @@ def main():
                     global_input, g_reward, global_orientation
                 )
                 global_goals = g_handler.act(g_step + 1)
+                global_goals_m = g_handler.get_global_goals_m(global_goals, m_handler.planner_pose_inputs)
+                envs.set_global_goals(global_goals_m)
+                
                 g_handler.log_value(step + 1)
 
             ### TRAINING
@@ -139,14 +140,18 @@ def main():
                 step_idx = total_num_steps * num_scenes
                 if args.train_global:
                     g_handler.save_model(step_idx, dump_dir)
+
+            total_num_steps += 1
         
         # generate video out of images when an episode ends
         if args.print_images:
             for scene in range(num_scenes):
-                img_path = '{}/thread_{}/ep_{}/%04d.png'.format(dump_dir, scene+1, (ep_num+1)*2)
-                save_path = '{}/thread_{}/video_{}.mp4'.format(dump_dir, scene+1, (ep_num+1)*2)
+                ep_dir_num = infos[scene]['episode_no']
+                img_path = '{}/thread_{}/ep_{}/%04d.png'.format(dump_dir, scene+1, ep_dir_num)
+                save_path = '{}/thread_{}/video_{}.mp4'.format(dump_dir, scene+1, ep_dir_num)
                 os.system(
                     f"ffmpeg -framerate 30  -i  {img_path} -y {save_path}")
+
 
     if args.eval:
         g_handler.save_results(dump_dir)
