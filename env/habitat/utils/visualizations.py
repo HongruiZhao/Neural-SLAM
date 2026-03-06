@@ -12,6 +12,7 @@ import matplotlib.patches as mpatches
 
 import seaborn as sns
 import skimage
+from einops import rearrange
 
 # define colors in hex
 eva_purple1 = "#BB84EBF2"
@@ -36,8 +37,12 @@ def visualize(fig, ax,
               visualize, print_images, previous_action, accumulated_ratio,
               heuristic_active=None,
               uncert_sum_history=None,
+              reward_history=None,
+              value_history=None,
               uncert_init=1e-6,
-              gt_map=None):
+              gt_map=None,
+              full_map=None,
+              local_map=None):
     """
     Args:
         rank: Thread No.
@@ -63,12 +68,8 @@ def visualize(fig, ax,
         ax[1].imshow(grid, origin='lower') # to be right hand coordinate
         ax[1].set_title(title, fontsize=15, color='red' if heuristic_active else 'black')
     else:
-        for i in range(3):
+        for i in range(len(ax)):
             ax[i].clear()
-            ax[i].set_yticks([])
-            ax[i].set_xticks([])
-            ax[i].set_yticklabels([])
-            ax[i].set_xticklabels([])
 
         ax[0].imshow(img)
         ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
@@ -84,13 +85,55 @@ def visualize(fig, ax,
         
         ax[2].set_title('Uncertainty_map', fontsize=15)
 
-        ax[-1].clear()
-        steps, sums = zip(*uncert_sum_history)
-        ax[-1].plot(steps, sums, marker='o')
-        ax[-1].set_title("Uncertainty Mean vs Step")
-        ax[-1].set_xlabel("Step")
-        ax[-1].set_ylabel("Uncertainty Mean")
-        ax[-1].grid(True)
+        # Plot Uncertainty History
+        if len(uncert_sum_history)>0:
+            steps, sums = zip(*uncert_sum_history)
+            ax[3].plot(steps, sums, marker='o')
+        ax[3].set_title("Uncertainty Mean vs Step")
+        ax[3].set_xlabel("Step")
+        ax[3].set_ylabel("Uncertainty Mean")
+        ax[3].grid(True)
+
+        # Plot Reward History
+        if len(reward_history)>0:
+            steps, rewards = zip(*reward_history)
+            ax[4].plot(steps, rewards, marker='o', color='green')
+        ax[4].set_title("Reward vs Step")
+        ax[4].set_xlabel("Step")
+        ax[4].set_ylabel("Reward")
+        ax[4].grid(True)
+
+        # Plot Value History
+        if value_history is not None and len(value_history)>0:
+            steps, values = zip(*value_history)
+            ax[5].plot(steps, values, marker='o', color='orange')
+        ax[5].set_title("Value vs Step")
+        ax[5].set_xlabel("Step")
+        ax[5].set_ylabel("Value")
+        ax[5].grid(True)
+
+        if len(ax) > 6 and full_map is not None:
+            # Normalize the second channel (index 1)
+            full_map_to_draw = full_map.copy()
+            f_max = full_map_to_draw[1].max()
+            if f_max > 0:
+                full_map_to_draw[1] /= f_max
+            # Concatenate the four channels along width dimension
+            full_map_cat = rearrange(full_map_to_draw, 'c h w -> h (c w)')
+            ax[6].imshow(full_map_cat, origin='lower')
+            ax[6].set_title('Full Map Channels (Obs, Exp/Unc, Agent, Visited)')
+
+        if len(ax) > 7 and local_map is not None:
+            # Normalize the second channel (index 1)
+            local_map_to_draw = local_map.copy()
+            l_max = local_map_to_draw[1].max()
+            if l_max > 0:
+                local_map_to_draw[1] /= l_max
+            # Concatenate the four channels along width dimension
+            local_map_cat = rearrange(local_map_to_draw, 'c h w -> h (c w)')
+            ax[7].imshow(local_map_cat, origin='lower')
+            ax[7].set_title('Local Map Channels (Obs, Exp/Unc, Agent, Visited)')
+
     # Draw GT agent pose
     agent_size = 8
     x, y, o = gt_pos
@@ -139,111 +182,6 @@ def visualize(fig, ax,
         fn = '{}/thread_{}/ep_{}/{:04d}.png'.format(
             dump_dir, rank+1, ep_no, t)
         plt.savefig(fn)
-
-def visualize_both(fig, ax, img, grid, grid2, gt_offset, pos, gt_pos, dump_dir, rank, ep_no, t,
-              visualize, print_images, vis_style, previous_action, accumulated_ratio):
-    """
-        @param rank: Thread No.
-        @param ep_no: current episode
-        @param t: time step
-        @param accumulated_ratio: percentage of map exlored
-        @param gt_offset: offset to align predicted and GT map
-        @param grid2: GT map
-    """
-    for i in range(2):
-        ax[i].clear()
-        ax[i].set_yticks([])
-        ax[i].set_xticks([])
-        ax[i].set_yticklabels([])
-        ax[i].set_xticklabels([])
-
-    ax[0].imshow(img)
-    ax[0].set_title(f"Pre_Act={previous_action}", fontsize=15)
-
-    title = f"Step={t}, Exp_ratio={accumulated_ratio:.2f}"
-
-    ax[1].imshow(grid)
-    ax[1].set_title(title, fontsize=15)
-
-    ax[2].imshow(grid2)
-    ax[2].set_title("Ground-truth map", fontsize=15)
-
-    legend_elements = [
-        mpatches.Patch(color=color_palette[i], label=desc[i]) \
-        for i in range(len(color_palette))
-    ]
-
-    # Draw GT agent pose
-    agent_size = 8
-    x, y, o = gt_pos
-    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
-
-    dx = 0
-    dy = 0
-    fc = 'Grey'
-    dx = np.cos(np.deg2rad(o))
-    dy = -np.sin(np.deg2rad(o))
-    ax[1].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * (agent_size * 1.25),
-                head_width=agent_size, head_length=agent_size * 1.25,
-                length_includes_head=True, fc=fc, ec=fc, alpha=0.9)
-
-    # Draw predicted agent pose
-    x, y, o = pos
-    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
-
-    dx = 0
-    dy = 0
-    fc = 'Red'
-    dx = np.cos(np.deg2rad(o))
-    dy = -np.sin(np.deg2rad(o))
-    ax[1].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * agent_size * 1.25,
-                head_width=agent_size, head_length=agent_size * 1.25,
-                length_includes_head=True, fc=fc, ec=fc, alpha=0.6)
-    
-    ax[1].legend(handles=legend_elements, bbox_to_anchor=(1.05, 1),
-                 loc='upper left', borderaxespad=0., fontsize=8)
-    
-    ## Do the same but for GT
-    x, y, o = gt_pos
-    x, y = x - gt_offset[0], y - gt_offset[1]
-    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
-
-    ax[2].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * (agent_size * 1.25),
-                head_width=agent_size, head_length=agent_size * 1.25,
-                length_includes_head=True, fc=fc, ec=fc, alpha=0.9)
-    
-    x, y, o = pos
-    x, y = x - gt_offset[0], y - gt_offset[1]
-    x, y = x * 100.0 / 5.0, grid.shape[1] - y * 100.0 / 5.0
-    ax[2].arrow(x - 1 * dx, y - 1 * dy, dx * agent_size, dy * agent_size * 1.25,
-                head_width=agent_size, head_length=agent_size * 1.25,
-                length_includes_head=True, fc=fc, ec=fc, alpha=0.6)
-    legend_elements = [
-        mpatches.Patch(color=color_palette[i], label=desc[i]) \
-        for i in range(len(color_palette))
-    ]
-    ax[2].legend(handles=legend_elements, bbox_to_anchor=(1.05, 1),
-                 loc='upper left', borderaxespad=0., fontsize=8)
-
-    for _ in range(5):
-        plt.tight_layout()
-
-    if visualize:
-        plt.gcf().canvas.flush_events()
-        fig.canvas.start_event_loop(0.001)
-        plt.gcf().canvas.flush_events()
-
-    if print_images:
-        fn = '{}/thread_{}/ep_{}/{:04d}.png'.format(
-            dump_dir, rank+1, ep_no, t)
-        plt.savefig(fn)
-
-
-def insert_circle(map, x, y, value):
-    map[y - 2:y + 3, x - 2:x + 3] = value
-    map[y - 3:y + 4, x - 1:x + 2] = value
-    map[y - 1:y + 2, x - 3:x + 4] = value
-    return map
 
 
 def fill_color(colored, map, color):

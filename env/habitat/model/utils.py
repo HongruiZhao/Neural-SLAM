@@ -1,4 +1,3 @@
-# package imports
 import torch
 import torch.nn.functional as F
 from math import exp, log, floor
@@ -6,13 +5,14 @@ from math import exp, log, floor
 # # TODO
 # from backpack import backpack, extend
 
-
+@torch.compile
 def mse2psnr(x):
     '''
     MSE to PSNR
     '''
     return -10. * torch.log(x) / torch.log(torch.Tensor([10.])).to(x)
 
+@torch.compile
 def coordinates(voxel_dim, device: torch.device):
     '''
     Params: voxel_dim: int or tuple of int
@@ -29,6 +29,7 @@ def coordinates(voxel_dim, device: torch.device):
 
     return torch.stack((x.flatten(), y.flatten(), z.flatten()))
 
+@torch.compile
 def sample_pdf(bins, weights, N_importance, det=False, eps=1e-5):
     '''
     Params:
@@ -81,6 +82,7 @@ def batchify(fn, chunk=1024*64):
             return torch.cat([fn(inputs[i:i+chunk]) for i in range(0, inputs.shape[0], chunk)], 0)
         return ret
 
+@torch.compile
 def get_masks(z_vals, target_d, truncation):
     '''
     Params:
@@ -111,6 +113,7 @@ def get_masks(z_vals, target_d, truncation):
 
     return front_mask, sdf_mask, fs_weight, sdf_weight
 
+@torch.compile
 def compute_loss(prediction, target, loss_type='l2'):
     '''
     Params: 
@@ -136,6 +139,7 @@ def compute_loss(prediction, target, loss_type='l2'):
 
     raise Exception('Unsupported loss type')
     
+@torch.compile
 def get_sdf_loss(z_vals, target_d, predicted_sdf, truncation, loss_type=None, grad=None):
     '''
     Params:

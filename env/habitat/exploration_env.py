@@ -128,13 +128,28 @@ class Exploration_Env(habitat.RLEnv):
         #                                         num="Thread {}".format(rank))
         if args.print_images or args.visualize:
             if args.use_NeRF_mapping:
-                self.figure = plt.figure(figsize=(9*16/9, 9),
-                                    facecolor="whitesmoke",
-                                    num="Thread {}".format(rank))
-                self.ax = [plt.subplot2grid((2, 3), (0, 0)),
-                           plt.subplot2grid((2, 3), (0, 1)),
-                           plt.subplot2grid((2, 3), (0, 2)),
-                           plt.subplot2grid((2, 3), (1, 0), colspan=3)]
+                if args.vis_full_local_maps:
+                    self.figure = plt.figure(figsize=(12, 16),
+                                        facecolor="whitesmoke",
+                                        num="Thread {}".format(rank))
+                    self.ax = [plt.subplot2grid((4, 3), (0, 0)),
+                               plt.subplot2grid((4, 3), (0, 1)),
+                               plt.subplot2grid((4, 3), (0, 2)),
+                               plt.subplot2grid((4, 3), (1, 0)),
+                               plt.subplot2grid((4, 3), (1, 1)),
+                               plt.subplot2grid((4, 3), (1, 2)),
+                               plt.subplot2grid((4, 3), (2, 0), colspan=3),
+                               plt.subplot2grid((4, 3), (3, 0), colspan=3)]
+                else:
+                    self.figure = plt.figure(figsize=(12, 8),
+                                        facecolor="whitesmoke",
+                                        num="Thread {}".format(rank))
+                    self.ax = [plt.subplot2grid((2, 3), (0, 0)),
+                               plt.subplot2grid((2, 3), (0, 1)),
+                               plt.subplot2grid((2, 3), (0, 2)),
+                               plt.subplot2grid((2, 3), (1, 0)),
+                               plt.subplot2grid((2, 3), (1, 1)),
+                               plt.subplot2grid((2, 3), (1, 2))]
             else:
               self.figure, self.ax = plt.subplots(1,2, figsize=(6*16/9, 6),
                                         facecolor="whitesmoke",
@@ -224,6 +239,8 @@ class Exploration_Env(habitat.RLEnv):
         self.trajectory_states = []
         self.accumulated_ratio = 0
         self.uncert_sum_history = []
+        self.reward_history = []
+        self.global_goal_m = None
 
 
         if self.episode_no % 2 == 0: # reset will get called twice in a row for some reasons 
@@ -318,7 +335,7 @@ class Exploration_Env(habitat.RLEnv):
                 self.uncert_map = self.nerf_mapper.model.embed_fn.get_uncert_map()
                 self.uncert_sum_history.append((self.timestep, (self.uncert_map * self.explorable_map).mean()))
                 if self.args.use_uncertainty_reward:
-                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).mean()
+                    self.prev_uncert_sum = (self.uncert_map * self.explorable_map).sum()
             else:
                 self.uncert_map = None
             
@@ -330,6 +347,7 @@ class Exploration_Env(habitat.RLEnv):
             # Set info
             self.info = {
                 'time': self.timestep,
+                'episode_no': self.episode_no,
                 'fp_proj': fp_proj,
                 'fp_explored': fp_explored,
                 'sensor_pose': [0., 0., 0.],
@@ -486,13 +504,16 @@ class Exploration_Env(habitat.RLEnv):
                                 self.curr_loc_gt[2]]
         self.info['depth'] = obs['depth'].transpose(2, 0, 1)
         if self.timestep%args.num_local_steps==0:
-            area, ratio = self.get_global_reward()
-            self.info['exp_reward'] = area # area per step, no accumulated
+            reward, ratio, reward_components = self.get_global_reward()
+            self.info['exp_reward'] = reward # reward per step, no accumulated
             self.info['exp_ratio'] = ratio # ratio per step, no accumulated
+            self.info['reward_components'] = reward_components
             self.accumulated_ratio += ratio
+            self.reward_history.append((self.timestep, reward))
         else:
             self.info['exp_reward'] = None
             self.info['exp_ratio'] = None
+            self.info['reward_components'] = None
         if args.use_NeRF_mapping:
             self.info['uncertainty'] =  self.uncert_sum_history[-1][-1]
 
@@ -515,31 +536,43 @@ class Exploration_Env(habitat.RLEnv):
         # This function is not used, Habitat-RLEnv requires this function
         return 0.
 
+    def set_global_goal(self, global_goal_m):
+        self.global_goal_m = global_goal_m
+
     def get_global_reward(self):
+        curr_explored = self.explored_map*self.explorable_map
+        curr_explored_area = curr_explored.sum()
+        new_area = (curr_explored_area - self.prev_explored_area)*1.
+        total_area = self.explorable_map.sum()
+        new_area_ratio = new_area/total_area
+        self.prev_explored_area = curr_explored_area
+
+        reward_components = {}
         if self.args.use_uncertainty_reward and self.uncert_map is not None:
             current_uncert_sum = (self.uncert_map * self.explorable_map).sum()
-            m_reward = self.prev_uncert_sum - current_uncert_sum
-
-            reward_scale = self.explorable_map.sum()
-            m_ratio = m_reward / reward_scale
-            
+            uncert_reward = self.prev_uncert_sum - current_uncert_sum # reduction in uncertainty
+            uncert_reward *=  1e-1 # scaled to be similar to area coverage reward 
             self.prev_uncert_sum = current_uncert_sum
+            m_reward = uncert_reward
+            reward_components['uncert_reward'] = uncert_reward
+        else: 
+            area_reward = new_area # increase in area coverage
+            area_reward = area_reward * 25./10000. # converting to m^2
+            area_reward *= 0.02 # Reward Scaling
+            m_reward = area_reward
+            reward_components['area_reward'] = area_reward
 
-            m_reward *=  1e-4 # scaled to be similar to area coverage reward 
+        if self.global_goal_m is not None:
+            curr_x, curr_y = self.curr_loc_gt[0], self.curr_loc_gt[1]
+            goal_x, goal_y = self.global_goal_m
+            l1_dist = abs(curr_x - goal_x) + abs(curr_y - goal_y)
+            
+            window_size_m = (self.map_size_cm / 100.0) / self.args.global_downscaling
+            dist_penalty = - (l1_dist / window_size_m) * self.args.goal_dist_coeff
+            m_reward += dist_penalty
+            reward_components['dist_penalty'] = dist_penalty
 
-        else:
-            curr_explored = self.explored_map*self.explorable_map
-            curr_explored_area = curr_explored.sum()
-
-            reward_scale = self.explorable_map.sum()
-            m_reward = (curr_explored_area - self.prev_explored_area)*1.
-            m_ratio = m_reward/reward_scale
-            m_reward = m_reward * 25./10000. # converting to m^2
-            self.prev_explored_area = curr_explored_area
-
-            m_reward *= 0.02 # Reward Scaling
-
-        return m_reward, m_ratio
+        return m_reward, new_area_ratio, reward_components
 
     def get_done(self, observations):
         # This function is not used, Habitat-RLEnv requires this function
@@ -766,88 +799,8 @@ class Exploration_Env(habitat.RLEnv):
 
         self.relative_angle = relative_angle
 
-        # if args.visualize or args.print_images:
-        #     dump_dir = "{}/dump/{}/".format(args.dump_location,
-        #                                         args.exp_name)
-        #     ep_dir = '{}/thread_{}/ep_{}/'.format(
-        #                     dump_dir, self.rank+1, self.episode_no)
-        #     if not os.path.exists(ep_dir):
-        #         os.makedirs(ep_dir)
-
-        #     if args.vis_type == 1: # Visualize predicted map and pose
-        #         vis_grid = vu.get_colored_map(np.rint(map_pred),
-        #                         self.collison_map[gx1:gx2, gy1:gy2],
-        #                         self.visited_vis[gx1:gx2, gy1:gy2],
-        #                         self.visited_gt[gx1:gx2, gy1:gy2],
-        #                         goal,
-        #                         stg,
-        #                         self.explored_map[gx1:gx2, gy1:gy2],
-        #                         self.explorable_map[gx1:gx2, gy1:gy2],
-        #                         self.map[gx1:gx2, gy1:gy2] *\
-        #                             self.explored_map[gx1:gx2, gy1:gy2])
-        #         vis_grid = np.flipud(vis_grid)
-        #         vu.visualize(self.figure, self.ax, self.obs, vis_grid[:,:,::-1],
-        #                     (start_x - gy1*args.map_resolution/100.0,
-        #                      start_y - gx1*args.map_resolution/100.0,
-        #                      start_o),
-        #                     (start_x_gt - gy1*args.map_resolution/100.0,
-        #                      start_y_gt - gx1*args.map_resolution/100.0,
-        #                      start_o_gt),
-        #                     dump_dir, self.rank, self.episode_no,
-        #                     self.timestep, args.visualize,
-        #                     args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
-
-        #     elif args.vis_type == 2: # Visualize ground-truth map and pose
-        #         vis_grid = vu.get_colored_map(self.map,
-        #                         self.collison_map,
-        #                         self.visited_gt,
-        #                         self.visited_gt,
-        #                         (goal[0]+gx1, goal[1]+gy1),
-        #                         stg,
-        #                         self.explored_map,
-        #                         self.explorable_map,
-        #                         self.map*self.explored_map)
-        #         vis_grid = np.flipud(vis_grid)
-        #         vu.visualize(self.figure, self.ax, self.obs, vis_grid[:,:,::-1],
-        #                     (start_x_gt, start_y_gt, start_o_gt),
-        #                     (start_x_gt, start_y_gt, start_o_gt),
-        #                     dump_dir, self.rank, self.episode_no,
-        #                     self.timestep, args.visualize,
-        #                     args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
-
-        #     else: # Visualize BOTH predicted and ground-truth map and pose
-        #         vis_grid_pred = vu.get_colored_map(np.rint(map_pred),
-        #                         self.collison_map[gx1:gx2, gy1:gy2],
-        #                         self.visited_vis[gx1:gx2, gy1:gy2],
-        #                         self.visited_gt[gx1:gx2, gy1:gy2],
-        #                         goal,
-        #                         stg,
-        #                         self.explored_map[gx1:gx2, gy1:gy2],
-        #                         self.explorable_map[gx1:gx2, gy1:gy2],
-        #                         self.map[gx1:gx2, gy1:gy2] *\
-        #                             self.explored_map[gx1:gx2, gy1:gy2])
-        #         vis_grid_pred = np.flipud(vis_grid_pred)
-                
-        #         vis_grid_gt = vu.get_colored_map(self.map,
-        #                         self.collison_map,
-        #                         self.visited_gt,
-        #                         self.visited_gt,
-        #                         (goal[0]+gx1, goal[1]+gy1),
-        #                         stg,
-        #                         self.explored_map,
-        #                         self.explorable_map,
-        #                         self.map*self.explored_map)
-        #         vis_grid_gt = np.flipud(vis_grid_gt)
-        #         vu.visualize_both(self.figure, self.ax, self.obs, vis_grid_pred[:,:,::-1], vis_grid_gt[:,:,::-1],
-        #                           (gx1*args.map_resolution/100.0,
-        #                           gy1*args.map_resolution/100.0),
-        #                           (start_x_gt, start_y_gt, start_o_gt),
-        #                           (start_x_gt, start_y_gt, start_o_gt),
-        #                           dump_dir, self.rank, self.episode_no,
-        #                           self.timestep, args.visualize,
-        #                           args.print_images, args.vis_type, self._previous_action, self.accumulated_ratio)
-
         return output
+
 
     def visualize_map(self, inputs):
         args = self.args
@@ -867,6 +820,8 @@ class Exploration_Env(habitat.RLEnv):
         stg = goal # TODO: visualization for local short-term goal?
         start_x_gt, start_y_gt, start_o_gt = self.curr_loc_gt
         heuristic_active=inputs['heuristic_active'] if 'heuristic_active' in inputs else None
+        full_map = inputs['full_map'] if 'full_map' in inputs else None
+        local_map = inputs['local_map'] if 'local_map' in inputs else None
 
         if args.vis_type == 1: # Visualize predicted map and pose
             vis_grid = vu.get_colored_map(np.rint(map_pred),
@@ -893,8 +848,12 @@ class Exploration_Env(habitat.RLEnv):
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         heuristic_active=heuristic_active,
                         uncert_sum_history=self.uncert_sum_history,
+                        reward_history=self.reward_history,
+                        value_history=inputs['value_history'] if 'value_history' in inputs else None,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
-                        gt_map=self.explorable_map)
+                        gt_map=self.explorable_map,
+                        full_map=full_map,
+                        local_map=local_map)
 
         else: # Visualize ground-truth map and pose
             vis_grid = vu.get_colored_map(self.map,
@@ -916,8 +875,12 @@ class Exploration_Env(habitat.RLEnv):
                         args.print_images, self._previous_action, self.accumulated_ratio,
                         heuristic_active=heuristic_active,
                         uncert_sum_history=self.uncert_sum_history,
+                        reward_history=self.reward_history,
+                        value_history=inputs['value_history'] if 'value_history' in inputs else None,
                         uncert_init=self.nerf_map_cfg['grid']['initial_uncert'],
-                        gt_map=self.explorable_map)
+                        gt_map=self.explorable_map,
+                        full_map=full_map,
+                        local_map=local_map)
 
 
     def _get_gt_map(self, full_map_size):

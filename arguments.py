@@ -65,6 +65,8 @@ def get_args():
                         help='1: Show predicted map, 2: Show GT map')
     parser.add_argument('--print_images', type=int, default=0,
                         help='1: save visualization as images')
+    parser.add_argument('--vis_full_local_maps', type=int, default=1,
+                        help='1: show full and local maps (third and fourth rows)')
     parser.add_argument('--save_trajectory_data', type=str, default="0")
     parser.add_argument('--eval_scene_id', type=str, default="no",
                         help="""scene id for evaluation""")
@@ -171,12 +173,12 @@ def get_args():
     parser.add_argument('--map_pred_threshold', type=float, default=0.5)
 
     parser.add_argument('--vision_range', type=int, default=64)
-    parser.add_argument('--obstacle_boundary', type=int, default=5) # in cm
+    parser.add_argument('--obstacle_boundary', type=int, default=20) # in cm
     parser.add_argument('--map_resolution', type=int, default=5) # in cm
     parser.add_argument('--du_scale', type=int, default=2)
     parser.add_argument('--map_size_cm', type=int, default=2400)
     parser.add_argument('-ot', '--obs_threshold', type=float, default=1)
-    parser.add_argument('-ct', '--collision_threshold', type=float, default=0.20)
+    parser.add_argument('-ct', '--collision_threshold', type=float, default=0.001)
     parser.add_argument('-nl', '--noise_level', type=float, default=1.0)
     # for debugging 
     parser.add_argument('--debug', type=int, default=0,
@@ -196,6 +198,8 @@ def get_args():
     parser.add_argument('--use_ffm_planner', type=int, default=0)
     parser.add_argument('--use_uncertainty_reward', type=int, default=0,
                         help='use uncertainty reduction as reward')
+    parser.add_argument('--goal_dist_coeff', type=float, default=0.1,
+                        help='coefficient for the global goal distance penalty')
 
     # heuristic type and parameters
     parser.add_argument('--heuristic_strategy', type=str, default="none",
@@ -296,7 +300,7 @@ def get_args():
         args.train_local = 0
 
     if args.num_mini_batch == "auto":
-        args.num_mini_batch = args.num_processes // 2
+        args.num_mini_batch = max(args.num_processes // 2, 1)
     else:
         args.num_mini_batch = int(args.num_mini_batch)
 

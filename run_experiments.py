@@ -98,26 +98,28 @@ def run_experiment(exp_config):
 
 def main():
     
-    base_global_config = 'configs/eval_NSLAM.txt'
+    base_global_config = 'configs/eval_NSLAM_Annawan.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
+    eval_name = 'Feb18_evalNSLAM_Annawan'
+    exp_name = 'Feb18_trainNSLAM_Annawan'
+    step = [100000, 200000, 300000, 490000]
     
-    exp_names = ['Feb4_Cantwell_yesReplay_NARUTO_iter100',
-                 'Feb4_Eudora_yesReplay_Ensemble_iter100',]
-    eval_scen_ids = ['no', '392']
-    uncertainty = ['NARUTO', 'ensemble']
+    exp_names = [ f'{eval_name}_{s}' for s in step ]
+    loag_global = [f'results/dump/{exp_name}/periodic_{s}.global' for s in step]
     experiments = []
     for i in range(len(exp_names)):
         experiments.append({
             "global_config_path": base_global_config,
             "mapping_config_path": base_mapping_config,
             "global_overrides": {
+                "split": "train",
                 "exp_name": exp_names[i],
-                "eval_scene_id": eval_scen_ids[i],
+                "eval_scene_id": 400000,
+                "load_global": loag_global[i],
             },
             "mapping_overrides": {
-                "grid": { "uncertainty": uncertainty[i]} ,
-                "mesh": { "vis": 5000000000000},
-                "mapping":{'replay': True, 'iters':100},
+                "grid": { "uncertainty": 'ensemble', 'ensemble_size': 3} ,
+                "mapping":{'replay': True, 'iters':50},
             },
         })
 

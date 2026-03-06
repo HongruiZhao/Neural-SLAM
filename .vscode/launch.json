@@ -43,7 +43,7 @@
             "stopOnEntry": true // automatically stop the debugger on the first line
         },
         {
-            "name": "NeuralSLAM main", // custom configuration name 
+            "name": "NeuralSLAM eval", // custom configuration name 
             "type": "debugpy",
             "request": "launch",
             "program": "${file}", // run current file 
@@ -51,7 +51,21 @@
             //"args": "${command:pickArgs}", // take input arguments 
             "args": [
                 "--config",
-                "configs/eval_NSLAM.txt",
+                "configs/eval_NSLAM_Annawan.txt",
+            ],
+            "stopOnEntry": true, // automatically stop the debugger on the first line,
+            "justMyCode": true
+        },
+        {
+            "name": "NeuralSLAM Train", // custom configuration name 
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}", // run current file 
+            "console": "integratedTerminal", // debugger console does not support args
+            //"args": "${command:pickArgs}", // take input arguments 
+            "args": [
+                "--config",
+                "configs/train_NSLAM_Annawan.txt",
             ],
             "stopOnEntry": true, // automatically stop the debugger on the first line,
             "justMyCode": true

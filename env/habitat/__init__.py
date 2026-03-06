@@ -18,9 +18,7 @@ import omegaconf
 def make_env_fn(args, config_env, config_baseline, rank):
     dataset = PointNavDatasetV1(config_env.habitat.dataset)
     if args.eval_scene_id != "no":
-        dataset.episodes = [
-            e for e in dataset.episodes if e.episode_id == int(args.eval_scene_id)
-        ]
+        dataset.episodes = [dataset.episodes[int(args.eval_scene_id)]]
     omegaconf.OmegaConf.set_readonly(config_env, False)
     config_env.habitat.simulator.scene = dataset.episodes[0].scene_id
     print("Loading {}".format(config_env.habitat.simulator.scene))
@@ -108,12 +106,14 @@ def construct_envs(args):
             make_env_fn=make_env_fn,
             env_fn_args=tuple(zip(args_list, env_configs, baseline_configs, 
                                   range(args.num_processes))),
+            auto_reset_done=False
     )
     else:
         envs = VectorEnv(
             make_env_fn=make_env_fn,
             env_fn_args=tuple(zip(args_list, env_configs, baseline_configs, 
                                   range(args.num_processes))),
+            auto_reset_done=False
         )
 
 

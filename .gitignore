@@ -138,3 +138,5 @@ dmypy.json
 /mapping_test/data
 *.jpg
 *.png
+gemini_instructions/commit_message.md
+paste.txt 

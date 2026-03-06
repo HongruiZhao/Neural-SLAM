@@ -1,7 +1,0 @@
-* **Empirical Variance Implementation**:
-    * According to the paper (Section 3.2), a common heuristic is to use an ensemble of NNs trained to minimize MSE.
-    * The uncertainty is estimated using the **empirical variance** of the ensemble predictions (epistemic uncertainty).
-    * Given $M$ ensemble members where each model $m$ predicts a value $\mu_{\theta_m}(x)$ (e.g., SDF or RGB value), the ensemble mean is $\mu_*(x) = \frac{1}{M} \sum_{m=1}^M \mu_{\theta_m}(x)$.
-    * The empirical variance is calculated as:
-      $$ \sigma^2_{emp}(x) = \frac{1}{M} \sum_{m=1}^M (\mu_{\theta_m}(x) - \mu_*(x))^2 $$
-    * This captures the disagreement among the ensemble members, which serves as a proxy for the model's uncertainty about the prediction.
