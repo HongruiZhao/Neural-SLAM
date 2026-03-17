@@ -40,8 +40,8 @@ habitat:
             # - 0
             hfov: 90 
             normalize_depth: False
-    turn_angle: 10 
-    forward_step_size: 0.065
+    turn_angle: 25 # default 10 deg
+    forward_step_size: 0.25 # default 0.065 m
 
   task:
     type: Nav-v0

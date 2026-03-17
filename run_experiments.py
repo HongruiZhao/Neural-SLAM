@@ -96,13 +96,13 @@ def run_experiment(exp_config):
         if os.path.exists(temp_global_config_path):
             os.remove(temp_global_config_path)
 
+
 def main():
-    
     base_global_config = 'configs/eval_NSLAM_Annawan.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
-    eval_name = 'Feb18_evalNSLAM_Annawan'
-    exp_name = 'Feb18_trainNSLAM_Annawan'
-    step = [100000, 200000, 300000, 490000]
+    eval_name = 'March12_evalNSLAM_Annawan'
+    exp_name = 'March12_trainNSLAM_Annawan'
+    step = [200000, 400000, 600000, 740000]
     
     exp_names = [ f'{eval_name}_{s}' for s in step ]
     loag_global = [f'results/dump/{exp_name}/periodic_{s}.global' for s in step]
@@ -116,6 +116,7 @@ def main():
                 "exp_name": exp_names[i],
                 "eval_scene_id": 400000,
                 "load_global": loag_global[i],
+                "max_episode_length": 500,
             },
             "mapping_overrides": {
                 "grid": { "uncertainty": 'ensemble', 'ensemble_size': 3} ,

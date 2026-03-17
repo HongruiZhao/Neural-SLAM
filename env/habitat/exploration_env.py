@@ -36,6 +36,7 @@ from model import get_grid
 import yaml
 from .ramen_mapping import data_loading, get_camera_rays, Mapping
 from scipy.spatial.transform import Rotation # to process quaternion 
+from math import sqrt, exp
 
 
 def load_config(path, default_path=None):
@@ -565,10 +566,9 @@ class Exploration_Env(habitat.RLEnv):
         if self.global_goal_m is not None:
             curr_x, curr_y = self.curr_loc_gt[0], self.curr_loc_gt[1]
             goal_x, goal_y = self.global_goal_m
-            l1_dist = abs(curr_x - goal_x) + abs(curr_y - goal_y)
-            
+            dist = sqrt( (curr_x - goal_x)**2 + (curr_y - goal_y)**2 )
             window_size_m = (self.map_size_cm / 100.0) / self.args.global_downscaling
-            dist_penalty = - (l1_dist / window_size_m) * self.args.goal_dist_coeff
+            dist_penalty = - exp( 2*(dist / window_size_m) ) * self.args.goal_dist_coeff
             m_reward += dist_penalty
             reward_components['dist_penalty'] = dist_penalty
 
