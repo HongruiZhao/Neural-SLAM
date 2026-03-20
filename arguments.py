@@ -89,6 +89,9 @@ def get_args():
     parser.add_argument("--task_config", type=str,
                         default="gibson.yaml",
                         help="path to config yaml containing task information")
+    parser.add_argument("--mapping_config", type=str,
+                        default="env/habitat/configs/mapping.yaml",
+                        help="path to mapping config yaml")
     parser.add_argument("--split", type=str, default="train",
                         help="dataset split (train | val | val_mini) ")
     parser.add_argument('-na', '--noisy_actions', type=int, default=1)

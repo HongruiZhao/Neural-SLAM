@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import yaml
+import multiprocessing
 from tqdm import tqdm
 
 MAPPING_CONFIG_PATH = 'env/habitat/configs/mapping.yaml'
@@ -27,74 +28,68 @@ def write_global_config(config, path):
             # If value contains comment, keep it
             f.write(f"{key} = {value}\n")
 
+def update_recursive(d, u):
+    """Recursive update for mapping overrides."""
+    for k, v in u.items():
+        if isinstance(v, dict):
+            if k not in d:
+                d[k] = {}
+            d[k] = update_recursive(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
 
 def run_experiment(exp_config):
     
     global_cfg = load_global_config(exp_config['global_config_path'])
     global_cfg.update(exp_config.get('global_overrides', {}))
     
-    temp_global_config_path = 'temp_global_config.txt'
+    exp_name = global_cfg.get('exp_name', 'unnamed')
+    # Unique temp config per experiment to allow parallel execution
+    temp_global_config_path = f'temp_global_config_{exp_name}.txt'
     write_global_config(global_cfg, temp_global_config_path)
     
     base_mapping_path = exp_config.get('mapping_config_path', MAPPING_CONFIG_PATH)
-    
     with open(base_mapping_path, 'r') as f:
         mapping_cfg = yaml.full_load(f)
     
-    # Recursive update for mapping overrides
-    def update_recursive(d, u):
-        for k, v in u.items():
-            if isinstance(v, dict):
-                d[k] = update_recursive(d.get(k, {}), v)
-            else:
-                d[k] = v
-        return d
-
     update_recursive(mapping_cfg, exp_config.get('mapping_overrides', {}))
     
-    # Backup existing mapping config if we are about to overwrite it
-    backup_mapping_path = MAPPING_CONFIG_PATH + '.bak'
-    if os.path.exists(MAPPING_CONFIG_PATH):
-        shutil.copy2(MAPPING_CONFIG_PATH, backup_mapping_path)
+    # Unique mapping config per experiment
+    temp_mapping_config_path = f'temp_mapping_config_{exp_name}.yaml'
     
     try:
-        with open(MAPPING_CONFIG_PATH, 'w') as f:
+        with open(temp_mapping_config_path, 'w') as f:
             yaml.dump(mapping_cfg, f)
             
-        print(f"Running experiment: {global_cfg.get('exp_name', 'unnamed')}")
-        print(f"Global Config: {temp_global_config_path}")
-        print(f"Mapping Config: {MAPPING_CONFIG_PATH}")
+        print(f"Running experiment: {exp_name}")
         
-        cmd = f"python main.py --config {temp_global_config_path}"
+        # Pass the unique mapping config to main.py
+        cmd = f"python main.py --config {temp_global_config_path} --mapping_config {temp_mapping_config_path}"
         subprocess.run(cmd, shell=True, check=True)
         
         dump_location = global_cfg.get('dump_location', './tmp/').strip()
-        exp_name = global_cfg.get('exp_name', 'exp1').strip()
-
         
         log_dir = os.path.join(dump_location, 'models', exp_name)
         if not os.path.exists(log_dir):
-            os.makedirs(log_dir) # Should have been created by main.py, but just in case
+            os.makedirs(log_dir)
             
         # Copy configs
         shutil.copy2(temp_global_config_path, os.path.join(log_dir, 'global_config.txt'))
-        shutil.copy2(MAPPING_CONFIG_PATH, os.path.join(log_dir, 'mapping.yaml'))
+        shutil.copy2(temp_mapping_config_path, os.path.join(log_dir, 'mapping.yaml'))
         
         print(f"Configs saved to {log_dir}")
         
     except subprocess.CalledProcessError as e:
-        print(f"Experiment failed with error: {e}")
+        print(f"Experiment {exp_name} failed with error: {e}")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred in {exp_name}: {e}")
     finally:
-        # Restore Mapping Config
-        if os.path.exists(backup_mapping_path):
-            shutil.copy2(backup_mapping_path, MAPPING_CONFIG_PATH)
-            os.remove(backup_mapping_path)
-        
-        # Remove temp global config
+        # Remove temp configs
         if os.path.exists(temp_global_config_path):
             os.remove(temp_global_config_path)
+        if os.path.exists(temp_mapping_config_path):
+            os.remove(temp_mapping_config_path)
 
 
 def main():
@@ -124,8 +119,13 @@ def main():
             },
         })
 
-    for exp in tqdm(experiments):
-        run_experiment(exp)
+    # Run in parallel
+    num_parallel = len(experiments)
+    print(f"Starting {num_parallel} experiments in parallel...")
+    with multiprocessing.Pool(processes=num_parallel) as pool:
+        for _ in tqdm(pool.imap_unordered(run_experiment, experiments), total=len(experiments)):
+            pass
+
     print("\nAll experiments completed.")
 
 if __name__ == "__main__":

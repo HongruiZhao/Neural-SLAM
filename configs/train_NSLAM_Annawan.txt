@@ -27,7 +27,7 @@ ppo_epoch = 10 # default 4
 use_gae = 1 # default 0
 
 # reward coeffs 
-goal_dist_coeff = 100.0
+goal_dist_coeff = 0.1
 
 dump_location = results/
-exp_name = March17_trainNSLAM_Annawan
+exp_name = March18_trainNSLAM_Annawan

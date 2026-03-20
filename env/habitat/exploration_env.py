@@ -189,7 +189,7 @@ class Exploration_Env(habitat.RLEnv):
             self._env.episode_iterator.shuffle = True
 
         # for neural implicit mapping 
-        self.nerf_map_cfg = load_config('env/habitat/configs/mapping.yaml')
+        self.nerf_map_cfg = load_config(args.mapping_config)
         self.exp_name = args.exp_name
         fx, fy, cx, cy, self.img_H, self.img_W = get_camera_intrinsics(
             self.habitat_env.sim, 'depth')
