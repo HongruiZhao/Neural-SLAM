@@ -64,9 +64,9 @@ def run_experiment(exp_config):
             
         print(f"Running experiment: {exp_name}")
         
-        # Pass the unique mapping config to main.py
+        # Pass the unique mapping config to main.py. run in silent mode
         cmd = f"python main.py --config {temp_global_config_path} --mapping_config {temp_mapping_config_path}"
-        subprocess.run(cmd, shell=True, check=True)
+        subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         dump_location = global_cfg.get('dump_location', './tmp/').strip()
         
@@ -95,10 +95,12 @@ def run_experiment(exp_config):
 def main():
     base_global_config = 'configs/eval_NSLAM_Annawan.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
-    eval_name = 'March12_evalNSLAM_Annawan'
-    exp_name = 'March12_trainNSLAM_Annawan'
-    step = [200000, 400000, 600000, 740000]
-    
+    eval_name = 'March18_evalNSLAM_Annawan'
+    exp_name = 'March18_trainNSLAM_Annawan'
+    #step = [400000, 600000, 800000, 1000000, 1200000, 1240000]
+
+    step = [1240000]
+
     exp_names = [ f'{eval_name}_{s}' for s in step ]
     loag_global = [f'results/dump/{exp_name}/periodic_{s}.global' for s in step]
     experiments = []
@@ -116,6 +118,7 @@ def main():
             "mapping_overrides": {
                 "grid": { "uncertainty": 'ensemble', 'ensemble_size': 3} ,
                 "mapping":{'replay': True, 'iters':50},
+                "mesh":{'vis':500},
             },
         })
 
