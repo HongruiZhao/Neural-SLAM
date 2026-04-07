@@ -93,12 +93,11 @@ def run_experiment(exp_config):
 
 
 def main():
-    base_global_config = 'configs/eval_NSLAM_Annawan.txt'
+    #base_global_config = 'configs/eval_lena_Annawan.txt'
+    base_global_config = 'configs/eval_lena_Annawan.txt'
     base_mapping_config = 'env/habitat/configs/mapping.yaml'
     eval_name = 'March18_evalNSLAM_Annawan'
     exp_name = 'March18_trainNSLAM_Annawan'
-    #step = [400000, 600000, 800000, 1000000, 1200000, 1240000]
-
     step = [1240000]
 
     exp_names = [ f'{eval_name}_{s}' for s in step ]

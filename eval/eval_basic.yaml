@@ -1,6 +1,6 @@
-exp_names: ['ensemble_Ribera_mesh_Feb2']
+exp_names: ['March20_evalLena_Annawan_1200000']
 episodes: ['1']
 threads: ['0']
 gt_path: '/home/hongrui/Datasets/habitat/scene_datasets/gibson'
 mapping_cfg: 'env/habitat/configs/mapping.yaml'
-num_processes: 5 # having it too large may cause OOM problem and prevent codes from running 
+num_processes: 1 # having it too large may cause OOM problem and prevent codes from running 

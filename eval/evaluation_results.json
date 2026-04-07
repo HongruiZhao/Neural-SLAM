@@ -1,0 +1,18 @@
+{
+    "precision": [
+        58.93
+    ],
+    "recall": [
+        44.83
+    ],
+    "f1": [
+        50.92
+    ],
+    "mesh_name": [
+        [
+            "March20_evalLena_Annawan_1200000_ep1",
+            "agent_0",
+            "mesh_Annawan_499.ply"
+        ]
+    ]
+}

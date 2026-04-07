@@ -73,8 +73,8 @@ def get_align_transformation(initial_state, map_center=12.0):
     eulers = trimesh.transformations.euler_from_quaternion(initial_state['rotation'], axes='sxyz')
     trans_step2 = trimesh.transformations.euler_matrix(eulers[0], -eulers[2], eulers[1], 'sxyz') # axes flip 
     # TODO: WTF?
-    trans_step2[:3,:3] = trans_step2[:3,:3].T # required for Cantwell
-    #trans_step2[:3,:3] = trans_step2[:3,:3] # for Eudora
+    #trans_step2[:3,:3] = trans_step2[:3,:3].T # required for Cantwell
+    trans_step2[:3,:3] = trans_step2[:3,:3] # for Eudora, Annawan
 
     # translation to account for initial position
     agent_height = 1.25 # in m
