@@ -25,8 +25,37 @@ def extract_episodes(dataset_path, output_path):
 
     print(f"Successfully extracted {len(episodes_info)} episodes to {output_path}")
 
+def extract_train_episodes(content_dir, output_path):
+    """
+    Extracts episode and scene IDs from all per-scene content files in the train split.
+    """
+    if not os.path.isdir(content_dir):
+        print(f"Error: content directory not found at {content_dir}")
+        return
+
+    episodes_info = []
+    for fname in sorted(os.listdir(content_dir)):
+        if not fname.endswith('.json.gz'):
+            continue
+        with gzip.open(os.path.join(content_dir, fname), 'rt') as f:
+            data = json.load(f)
+        for episode in data['episodes']:
+            episodes_info.append({
+                'episode_id': episode['episode_id'],
+                'scene_id': episode['scene_id']
+            })
+
+    with open(output_path, 'w') as f:
+        json.dump(episodes_info, f, indent=4)
+
+    print(f"Successfully extracted {len(episodes_info)} train episodes to {output_path}")
+
+
 if __name__ == '__main__':
     # Path to the validation dataset
-    dataset_path = '/home/hongrui/Datasets/habitat/pointnav_gibson_v1/val/val.json.gz'
-    output_path = '../val_episodes.json'
-    extract_episodes(dataset_path, output_path)
+    val_dataset_path = '/home/hongrui/Datasets/habitat/pointnav_gibson_v1/val/val.json.gz'
+    extract_episodes(val_dataset_path, 'val_episodes.json')
+
+    # Path to the train dataset content directory
+    train_content_dir = '/home/hongrui/Datasets/habitat/pointnav_gibson_v1/train/content'
+    extract_train_episodes(train_content_dir, 'train_episodes.json')

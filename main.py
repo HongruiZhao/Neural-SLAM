@@ -81,7 +81,6 @@ def main():
         g_handler.log_value(0)
         l_handler.reset()
 
-
         for step in trange(args.max_episode_length, smoothing=0):
             g_step = (step // args.num_local_steps) % args.num_global_steps
             l_step = step % args.num_local_steps

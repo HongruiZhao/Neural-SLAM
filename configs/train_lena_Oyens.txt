@@ -1,10 +1,9 @@
 auto_gpu_config = 0
-num_processes = 1
+num_processes = 5
 debug = 0
 max_episode_length = 500
-num_episodes =  2500
-eval_scene_id = 400000 # for an Annawan episode
-save_periodic = 10000 # max_episode_length * num_episode
+num_episodes =  1000
+eval_scene_name = Oyens
 
 train_local = 0
 train_slam = 0
@@ -17,6 +16,7 @@ use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
 global_arch = lena
 use_NeRF_mapping = 1
 use_uncertainty_reward = 1
+uncert_only = 1
 
 num_global_steps = 40 # default 40
 num_mini_batch = 32 # default 32
@@ -32,4 +32,4 @@ use_gae = 1 # default 0
 goal_dist_coeff = 1.
 
 dump_location = results/
-exp_name = March20_trainlena_Annawan
+exp_name = Apr28_lena_Oyens

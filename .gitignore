@@ -140,3 +140,6 @@ dmypy.json
 *.png
 gemini_instructions/commit_message.md
 paste.txt 
+
+train_episodes.json
+gibson_stats.json

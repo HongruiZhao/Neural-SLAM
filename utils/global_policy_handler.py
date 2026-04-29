@@ -88,7 +88,11 @@ class GlobalPolicyHandler:
         if path != "0":
             print("Loading global {}".format(path))
             state_dict = torch.load(path, map_location=lambda storage, loc: storage)
-            #self.g_policy.load_state_dict({k.replace('_orig_mod.', ''): v for k, v in state_dict.items()})
+            # torch.compile() wraps the model with _orig_mod. prefix; remap if needed
+            if hasattr(self.g_policy, '_orig_mod'):
+                first_key = next(iter(state_dict))
+                if not first_key.startswith('_orig_mod.'):
+                    state_dict = {'_orig_mod.' + k: v for k, v in state_dict.items()}
             self.g_policy.load_state_dict(state_dict)
 
 
@@ -197,6 +201,11 @@ class GlobalPolicyHandler:
             rewards: Reward tensor for self.step.
             extras: Extra information (orientation) for self.step + 1.
         """
+
+        if self.args.uncert_only:
+            obs[:,0] = obs[:,1]
+            obs[:,4] = obs[:,5]
+
         self.g_rollouts.insert(
             obs, self.g_rec_states, self.g_action, self.g_action_log_prob,
             self.g_value, rewards, self.g_masks, extras

@@ -17,8 +17,6 @@ import omegaconf
 
 def make_env_fn(args, config_env, config_baseline, rank):
     dataset = PointNavDatasetV1(config_env.habitat.dataset)
-    if args.eval_scene_id != "no":
-        dataset.episodes = [dataset.episodes[int(args.eval_scene_id)]]
     omegaconf.OmegaConf.set_readonly(config_env, False)
     config_env.habitat.simulator.scene = dataset.episodes[0].scene_id
     print("Loading {}".format(config_env.habitat.simulator.scene))
@@ -60,9 +58,12 @@ def construct_envs(args):
         omegaconf.OmegaConf.set_readonly(config_env, False)
 
         if len(scenes) > 0:
-            config_env.habitat.dataset.content_scenes = scenes[
-                                                i * scene_split_size: (i + 1) * scene_split_size
-                                                ]
+            if args.eval_scene_name != "no":
+                config_env.habitat.dataset.content_scenes = [args.eval_scene_name]
+            else:
+                config_env.habitat.dataset.content_scenes = scenes[
+                                                    i * scene_split_size: (i + 1) * scene_split_size
+                                                    ]
 
         if i < args.num_processes_on_first_gpu:
             gpu_id = 0

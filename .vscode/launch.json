@@ -50,7 +50,7 @@
             //"args": "${command:pickArgs}", // take input arguments 
             "args": [
                 "--config",
-                "configs/eval_NSLAM_Annawan.txt",
+                "configs/eval_lena_Annawan.txt",
             ],
             "stopOnEntry": true, // automatically stop the debugger on the first line,
             "justMyCode": true

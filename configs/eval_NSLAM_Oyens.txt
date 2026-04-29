@@ -3,17 +3,18 @@ eval =  1
 debug = 0
 auto_gpu_config = 0 # gibson eval has 14 scenes, while 15 processes will be generated. 
 num_processes = 1 # 4 processes by default. used when auto_gpu_config is false
-max_episode_length = 500 #1000 for default
-num_episodes = 1
-eval_scene_id = 400000 # Annawan
+max_episode_length = 50 #1000 for default
+num_episodes = 5
+eval_scene_name = Oyens
 
 train_global = 0
 
-load_global = results/dump/March3_trainNSLAM_Annawan/periodic_490000.global
+load_global = pretrained_models/model_best.global
 use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
 
 global_arch = NeuralSLAM 
 use_NeRF_mapping = 1
+uncert_only = 0
 
 num_local_steps = 25 # default 25 
 
@@ -21,4 +22,4 @@ print_images = 1
 vis_type = 2 # 2 show GT map, 1 show predicted map
 vis_full_local_maps = 0
 dump_location = results/
-exp_name = March4_test
+exp_name = Apr_28_evalNSLAM_Oyens2

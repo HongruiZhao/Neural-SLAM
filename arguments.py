@@ -68,8 +68,9 @@ def get_args():
     parser.add_argument('--vis_full_local_maps', type=int, default=1,
                         help='1: show full and local maps (third and fourth rows)')
     parser.add_argument('--save_trajectory_data', type=str, default="0")
-    parser.add_argument('--eval_scene_id', type=str, default="no",
-                        help="""scene id for evaluation""")
+    parser.add_argument('--eval_scene_name', type=str, default="no",
+                        help='scene name for single-scene eval (e.g. Oyens). '
+                             'Restricts dataset loading to that scene only.')
 
 
     # Environment, dataset and episode specifications
@@ -201,6 +202,8 @@ def get_args():
     parser.add_argument('--use_ffm_planner', type=int, default=0)
     parser.add_argument('--use_uncertainty_reward', type=int, default=0,
                         help='use uncertainty reduction as reward')
+    parser.add_argument('--uncert_only', type=int, default=0,
+                        help='1: replace obstacle/explored map channels with uncertainty channels')
     parser.add_argument('--goal_dist_coeff', type=float, default=0.1,
                         help='coefficient for the global goal distance penalty')
 

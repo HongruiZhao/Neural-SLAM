@@ -1,0 +1,1 @@
+* Currently, in @env/habitat/__init__.py: if args.eval_scene_id != "no":, we set the dataset to only contain one episode so that the whole training on tra

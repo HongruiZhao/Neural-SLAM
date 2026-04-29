@@ -274,7 +274,9 @@ class Exploration_Env(habitat.RLEnv):
                 rgb = np.asarray(self.res(rgb))
             state = rgb.transpose(2, 0, 1)
             #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
-            depth = obs['depth'][:, :, 0] * 100 # m to cm 
+            h, w = obs['depth'][:, :, 0].shape
+            #obs['depth'][:, :, 0] += np.random.randn(h, w) * np.sqrt(0.01) # TODO: Gaussian noise, variance m^2
+            depth = obs['depth'][:, :, 0] * 100 # m to cm
 
             # Initialize map and pose
             self.map_size_cm = args.map_size_cm
@@ -413,9 +415,10 @@ class Exploration_Env(habitat.RLEnv):
 
         state = rgb.transpose(2, 0, 1)
 
-        #TODO
         #depth = _preprocess_depth(obs['depth']) # doesn't seem to be useful
-        depth = obs['depth'][:, :, 0] * 100 # m to cm 
+        h, w = obs['depth'][:, :, 0].shape
+        #obs['depth'][:, :, 0] += np.random.randn(h, w) * np.sqrt(0.01) # TODO: Gaussian noise, variance m^2
+        depth = obs['depth'][:, :, 0] * 100 # m to cm
 
         # Get base sensor and ground-truth pose
         dx_gt, dy_gt, do_gt, q_relative  = self.get_gt_pose_change()
