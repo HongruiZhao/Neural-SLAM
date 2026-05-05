@@ -82,6 +82,12 @@ main.py (master loop)
 3. Every 25 local steps: global policy gets new map input → predicts next long-term goal
 4. Every 40 global steps: PPO updates global policy weights
 
+**Episode lifecycle and reset semantics (important):**
+- `envs.reset()` is called once per outer `ep_num` iteration in `main.py:61`. This is the **only** reset point.
+- Per-env auto-reset is **disabled**: `exploration_env.step()` sets `self.habitat_env._episode_over = False` (`exploration_env.py:407`) so Habitat does not reset on `done=True`.
+- When `done=True` fires (from `time >= max_episode_length` or `accumulated_ratio >= finish_ratio`), the env keeps stepping in its terminated state for the rest of the inner loop. Because `accumulated_ratio` only grows, a `finish_ratio`-triggered termination causes `finish_bonus` to fire every subsequent global step.
+- Therefore `g_handler.g_masks == 0` at `process_rewards` time can be *first* termination or *N-th* re-termination — they are indistinguishable from `g_masks` alone. Aggregations over envs (logging, accumulators) must track first termination separately (see `GlobalPolicyHandler.episode_done`, cleared in `reset_episode`).
+
 **Map input to global policy** is an 8-channel tensor:
 `[obstacle_map, explored_map, current_pos, past_goal, map_boundary, uncertainty_map (×3)]`
 

@@ -33,7 +33,7 @@ def main():
         os.makedirs(dump_dir)
 
     writer = SummaryWriter("{}/tensorboard/{}/".format(args.dump_location, args.exp_name))
-    logger = TensorboardLogger(writer)
+    logger = TensorboardLogger(writer, mode=args.log_mode)
 
     num_scenes = args.num_processes
     num_episodes = int(args.num_episodes)
@@ -84,6 +84,7 @@ def main():
         for step in trange(args.max_episode_length, smoothing=0):
             g_step = (step // args.num_local_steps) % args.num_global_steps
             l_step = step % args.num_local_steps
+            logger.set_step(total_num_steps)
 
             if args.heuristic_strategy != 'none':
                 heuristic_tracker.update(m_handler.local_pose)

@@ -82,40 +82,60 @@ class RolloutStorage(object):
                         - self.value_preds[step]
                 gae = delta + gamma * tau * self.masks[step + 1] * gae
                 self.returns[step] = gae + self.value_preds[step]
-        else:
+        else:                                                                                                       
             self.returns[-1] = next_value
-            for step in reversed(range(self.rewards.size(0))):
+            for step in reversed(range(self.rewards.size(0))):                                                                                                                                                                                                                                  
                 self.returns[step] = self.returns[step + 1] * gamma \
-                                     * self.masks[step + 1] + self.rewards[step]
+                                     * self.masks[step + 1] + self.rewards[step]                            
 
     def feed_forward_generator(self, advantages, num_mini_batch):
 
-        num_steps, num_processes = self.rewards.size()[0:2]
-        batch_size = num_processes * num_steps
-        mini_batch_size = batch_size // num_mini_batch
+        num_steps = self.rewards.size(0)
+
+        # A sample (t, i) is "after done" when masks[t, i] == 0 AND
+        # masks[t-1, i] == 0 — the environment was already done at the prior
+        # step, so this transition contains no real experience and must be
+        # excluded from PPO training.
+        masks_slice = self.masks[:-1] 
+        after_done = torch.zeros_like(masks_slice, dtype=torch.bool)
+        if num_steps > 1:
+            after_done[1:] = (masks_slice[1:] == 0) & (masks_slice[:-1] == 0)
+        valid_mask = (~after_done).view(-1) # ~ flip 0 to 1
+        valid_indices = torch.nonzero(valid_mask, as_tuple=False).view(-1)
+
+        batch_size = valid_indices.numel()
         assert batch_size >= num_mini_batch, (
-            "PPO requires the number of processes ({}) "
-            "* number of steps ({}) = {} "
+            "PPO requires the number of valid (not-after-done) samples ({}) "
             "to be greater than or equal to the number of PPO mini batches ({})."
-            "".format(num_processes, num_steps, num_processes * num_steps,
-                      num_mini_batch))
+            "".format(batch_size, num_mini_batch))
+        mini_batch_size = batch_size // num_mini_batch
+
+        obs = self.obs[:-1].view(-1, *self.obs.size()[2:])[valid_indices]
+        rec_states = self.rec_states[:-1].view(
+            -1, self.rec_states.size(-1))[valid_indices]
+        actions = self.actions.view(-1, self.n_actions)[valid_indices]
+        value_preds = self.value_preds[:-1].view(-1)[valid_indices]
+        returns = self.returns[:-1].view(-1)[valid_indices]
+        masks = self.masks[:-1].view(-1)[valid_indices]
+        old_action_log_probs = self.action_log_probs.view(-1)[valid_indices]
+        adv_targ = advantages.view(-1)[valid_indices]
+        if self.has_extras:
+            extras = self.extras[:-1].view(-1, self.extras_size)[valid_indices]
 
         sampler = BatchSampler(SubsetRandomSampler(range(batch_size)),
                                mini_batch_size, drop_last=False)
 
         for indices in sampler:
             yield {
-                'obs': self.obs[:-1].view(-1, *self.obs.size()[2:])[indices],
-                'rec_states': self.rec_states[:-1].view(-1,
-                                                        self.rec_states.size(-1))[indices],
-                'actions': self.actions.view(-1, self.n_actions)[indices],
-                'value_preds': self.value_preds[:-1].view(-1)[indices],
-                'returns': self.returns[:-1].view(-1)[indices],
-                'masks': self.masks[:-1].view(-1)[indices],
-                'old_action_log_probs': self.action_log_probs.view(-1)[indices],
-                'adv_targ': advantages.view(-1)[indices],
-                'extras': self.extras[:-1].view(-1, self.extras_size)[indices] \
-                    if self.has_extras else None,
+                'obs': obs[indices],
+                'rec_states': rec_states[indices],
+                'actions': actions[indices],
+                'value_preds': value_preds[indices],
+                'returns': returns[indices],
+                'masks': masks[indices],
+                'old_action_log_probs': old_action_log_probs[indices],
+                'adv_targ': adv_targ[indices],
+                'extras': extras[indices] if self.has_extras else None,
             }
 
     def recurrent_generator(self, advantages, num_mini_batch):

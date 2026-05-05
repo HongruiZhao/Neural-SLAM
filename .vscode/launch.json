@@ -64,7 +64,7 @@
             //"args": "${command:pickArgs}", // take input arguments 
             "args": [
                 "--config",
-                "configs/train_NSLAM_Annawan.txt",
+                "configs/train_NSLAM_Oyens.txt",
             ],
             "stopOnEntry": true, // automatically stop the debugger on the first line,
             "justMyCode": true

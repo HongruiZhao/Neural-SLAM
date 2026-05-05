@@ -1,0 +1,40 @@
+auto_gpu_config = 0
+num_processes = 10
+debug = 0
+max_episode_length = 1000
+num_episodes =  250
+eval_scene_name = Oyens
+
+train_local = 0
+train_slam = 0
+train_global = 1
+use_nslam = 0
+
+load_global = 0
+use_DD_PPO = pretrained_models/gibson-4plus-mp3d-train-val-test-resnet50.pth
+
+global_arch = NeuralSLAM
+use_NeRF_mapping = 0
+use_uncertainty_reward = 0
+uncert_only = 0
+
+# PPO 
+# one update per epoch 25*40 = 1000
+num_global_steps = 100 # default 40
+num_local_steps = 10 # default is 25 
+num_mini_batch = 5 # default 32
+ppo_epoch = 4 # default 4
+use_gae = 1 # default 0
+entropy_coef = 0.01 # default 0.001
+
+# reward coeffs 
+goal_dist_coeff = 0.1 
+area_reward_coeff = 2.0
+time_penalty = -0.005
+finish_bonus = 5.0
+finish_ratio = 0.90
+
+# logging and saving control 
+log_mode = direct
+dump_location = results/
+exp_name = May5_NSLAM_Oyens

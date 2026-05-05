@@ -77,6 +77,10 @@ class GlobalPolicyHandler:
         self.all_accumulated_ratios = {}
         self.uncertainty_list = {}
         self.g_value_history = [[] for _ in range(num_scenes)]
+        # Sticky per-env termination flag for the current outer episode.
+        # Cleared in reset_episode(); set True the first time an env's
+        # episode ends so subsequent post-termination rewards are ignored.
+        self.episode_done = np.zeros(num_scenes, dtype=bool)
 
 
     def load_model(self, path: str):
@@ -112,6 +116,7 @@ class GlobalPolicyHandler:
         self.g_process_rewards.fill(0.)
         self.accumulated_ratio.fill(0.)
         self.g_value_history = [[] for _ in range(self.num_scenes)]
+        self.episode_done.fill(False)
 
 
     def log_value(self, step: int):
@@ -221,50 +226,85 @@ class GlobalPolicyHandler:
         Returns:
             Global reward tensor.
         """
-        g_reward = torch.from_numpy(np.asarray(
-            [infos[env_idx]['exp_reward'] for env_idx in range(self.num_scenes)])
-        ).float().to(self.device)
 
-        self.g_process_rewards += g_reward.cpu().numpy()
-        g_total_rewards = self.g_process_rewards * (1 - self.g_masks.cpu().numpy())
-        self.g_process_rewards *= self.g_masks.cpu().numpy()
-        self.logger.log('reward/step mean', np.mean(g_reward.cpu().numpy()))
+        g_reward_np = np.asarray(
+            [infos[env_idx]['exp_reward'] for env_idx in range(self.num_scenes)]
+        )
+        g_reward = torch.from_numpy(g_reward_np).float().to(self.device)
 
-        # Log individual reward components
-        for key in ['uncert_reward', 'area_reward', 'dist_penalty']:
+        # An env's rewards are valid only until the FIRST done=True within an
+        # outer episode. There is no per-env auto-reset, so post-termination
+        # steps keep producing rewards (notably finish_bonus refires every
+        # global step). Use a sticky `episode_done` flag to ignore them.
+        active_mask = ~self.episode_done
+        g_masks_np = self.g_masks.cpu().numpy()
+        just_finished = active_mask & (g_masks_np == 0)
+
+        # Per-step reward, averaged over envs not yet terminated.
+        if active_mask.any():
+            self.logger.log(
+                'reward/reward per global step(avg over envs)',
+                g_reward_np[active_mask].mean(),
+            )
+
+        # Per-step reward components, averaged over envs not yet terminated.
+        for key in ['uncert_reward', 'area_reward', 'dist_penalty', 'time_penalty', 'finish_bonus']:
             component_values = []
             for env_idx in range(self.num_scenes):
-                if infos[env_idx]['reward_components'] is not None and \
-                   key in infos[env_idx]['reward_components']:
-                    component_values.append(infos[env_idx]['reward_components'][key])
+                if not active_mask[env_idx]:
+                    continue
+                comps = infos[env_idx].get('reward_components')
+                if comps is not None and key in comps:
+                    component_values.append(comps[key])
             if len(component_values) > 0:
-                self.logger.log(f'reward_components/{key}', np.mean(component_values))
+                self.logger.log(
+                    f'reward components per global step (avg over envs)/{key}',
+                    np.mean(component_values),
+                )
 
-        if np.sum(g_total_rewards) != 0:
-            for tr in g_total_rewards:
-                if tr != 0:
-                    self.logger.log('reward/ep mean', tr)
-               
-        exp_ratio = np.asarray([infos[env_idx]['exp_ratio'] for env_idx in range(self.num_scenes)]) 
-        self.logger.log('area coverage/step mean', np.mean(exp_ratio))
-        self.accumulated_ratio += exp_ratio
+        # Accumulate episode totals only for envs whose rewards are still valid.
+        self.g_process_rewards[active_mask] += g_reward_np[active_mask]
+
+        # Per-episode total reward, averaged over envs that JUST finished
+        # (transitioned active -> done in this global step).
+        if just_finished.any():
+            self.logger.log(
+                'reward/ep mean accumulated reward (avg over envs)', self.g_process_rewards[just_finished].mean()
+            )
+
+        # Area coverage.
+        exp_ratio = np.asarray(
+            [infos[env_idx]['exp_ratio'] for env_idx in range(self.num_scenes)]
+        )
+        if active_mask.any():
+            self.logger.log(
+                'area coverage/step mean (avg over envs)',
+                exp_ratio[active_mask].mean(),
+            )
+        self.accumulated_ratio[active_mask] += exp_ratio[active_mask]
         self.all_accumulated_ratios[ep_num].append(self.accumulated_ratio.tolist())
-        done_ratio = self.accumulated_ratio * (1 - self.g_masks.cpu().numpy())
-        self.accumulated_ratio *= self.g_masks.cpu().numpy()
 
         if self.args.use_NeRF_mapping:
-            uncertainty = np.asarray([infos[env_idx]['uncertainty'] for env_idx in range(self.num_scenes)]) 
+            uncertainty = np.asarray(
+                [infos[env_idx]['uncertainty'] for env_idx in range(self.num_scenes)]
+            )
             self.uncertainty_list[ep_num].append(uncertainty.tolist())
 
-        if np.sum(done_ratio) != 0:
-            for scene_ratio in done_ratio:
-                if scene_ratio != 0:
-                    self.logger.log('area coverage/ep mean', scene_ratio)
-        
+        if just_finished.any():
+            self.logger.log(
+                'area coverage/ep mean',
+                self.accumulated_ratio[just_finished].mean(),
+            )
+
+        # Mark just-finished envs as done so subsequent global steps skip them.
+        self.episode_done |= just_finished
+
         return g_reward
+
 
     def train(self):
         """Perform a training update on the global policy."""
+        print("Training global policy...")
         g_next_value = self.g_policy.get_value(
             self.g_rollouts.obs[-1],
             self.g_rollouts.rec_states[-1],

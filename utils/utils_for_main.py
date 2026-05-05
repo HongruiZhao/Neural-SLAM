@@ -67,16 +67,28 @@ def visualize_map(num_scenes,
 
 
 class TensorboardLogger:
-    def __init__(self, writer):
+    def __init__(self, writer, mode='buffered'):
+        if mode not in ('buffered', 'direct'):
+            raise ValueError(f"Unknown log mode: {mode}")
         self.writer = writer
+        self.mode = mode
         self.stats = {}
+        self.current_step = 0
+
+    def set_step(self, step):
+        self.current_step = step
 
     def log(self, tag, value):
+        if self.mode == 'direct':
+            self.writer.add_scalar(tag, value, self.current_step)
+            return
         if tag not in self.stats:
             self.stats[tag] = []
         self.stats[tag].append(value)
 
     def write(self, step):
+        if self.mode == 'direct':
+            return
         for tag, values in self.stats.items():
             if len(values) > 0:
                 self.writer.add_scalar(tag, np.mean(values), step)

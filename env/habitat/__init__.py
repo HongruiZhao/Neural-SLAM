@@ -43,7 +43,6 @@ def construct_envs(args):
 
 
     scenes = PointNavDatasetV1.get_scenes_to_load(basic_config.habitat.dataset)
-    print(f'num of scenes = {len(scenes)}, scenes = {scenes}')
     if len(scenes) > 0:
         assert len(scenes) >= args.num_processes, (
             "reduce the number of processes as there "

@@ -11,12 +11,12 @@ mapping:
   first_iters: 50
   iters: 50
   replay: True
-  min_pixels_cur: 2000 # from current 
-  sample: 2000 # from history
+  min_pixels_cur: 1000 # from current 
+  sample: 3000 # from history
 
 
 mesh: 
-  vis: 5000000 # don't save meshes 
+  vis: 2000 # don't save meshes 
   save_uncert: False
 
 

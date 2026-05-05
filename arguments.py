@@ -42,6 +42,12 @@ def get_args():
     parser.add_argument('--log_interval', type=int, default=10,
                         help="""log interval, one log per n updates
                                 (default: 10) """)
+    parser.add_argument('--log_mode', type=str, default='buffered',
+                        choices=['buffered', 'direct'],
+                        help="""tensorboard logging mode.
+                                'buffered': buffer values and write averages on logger.write(step).
+                                'direct': write each logged value immediately at the logger's current step.
+                                (default: buffered)""")
     parser.add_argument('--save_interval', type=int, default=1,
                         help="""save interval""")
     parser.add_argument('-d', '--dump_location', type=str, default="./tmp/",
@@ -206,6 +212,16 @@ def get_args():
                         help='1: replace obstacle/explored map channels with uncertainty channels')
     parser.add_argument('--goal_dist_coeff', type=float, default=0.1,
                         help='coefficient for the global goal distance penalty')
+    parser.add_argument('--area_reward_coeff', type=float, default=0.1,
+                        help='scaling coefficient for the area coverage reward')
+    parser.add_argument('--uncert_reward_coeff', type=float, default=0.1,
+                        help='scaling coefficient for the uncertainty reduction reward')
+    parser.add_argument('--time_penalty', type=float, default=-0.005,
+                        help='constant per-global-step time penalty')
+    parser.add_argument('--finish_bonus', type=float, default=5.0,
+                        help='terminal bonus when coverage reaches finish_ratio')
+    parser.add_argument('--finish_ratio', type=float, default=0.95,
+                        help='coverage ratio that triggers episode termination and finish bonus')
 
     # heuristic type and parameters
     parser.add_argument('--heuristic_strategy', type=str, default="none",

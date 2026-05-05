@@ -527,6 +527,8 @@ class Exploration_Env(habitat.RLEnv):
             done = True
             if self.args.save_trajectory_data != "0":
                 self.save_trajectory_data()
+        elif self.accumulated_ratio >= args.finish_ratio:
+            done = True
         else:
             done = False
 
@@ -549,20 +551,26 @@ class Exploration_Env(habitat.RLEnv):
         new_area = (curr_explored_area - self.prev_explored_area)*1.
         total_area = self.explorable_map.sum()
         new_area_ratio = new_area/total_area
+        # Remaining-explorable area BEFORE this step's update.
+        remaining_area_before = total_area - self.prev_explored_area
         self.prev_explored_area = curr_explored_area
 
         reward_components = {}
         if self.args.use_uncertainty_reward and self.uncert_map is not None:
             current_uncert_sum = (self.uncert_map * self.explorable_map).sum()
             uncert_reward = self.prev_uncert_sum - current_uncert_sum # reduction in uncertainty
-            uncert_reward *=  1e-1 # scaled to be similar to area coverage reward 
+            uncert_reward *= self.args.uncert_reward_coeff
             self.prev_uncert_sum = current_uncert_sum
             m_reward = uncert_reward
             reward_components['uncert_reward'] = uncert_reward
-        else: 
-            area_reward = new_area # increase in area coverage
-            area_reward = area_reward * 25./10000. # converting to m^2
-            area_reward *= 0.02 # Reward Scaling
+        else:
+            # Normalize new area by the still-explorable remainder so the
+            # per-step signal does not decay as the map fills in.
+            if remaining_area_before > 1.0:
+                area_reward = new_area / remaining_area_before
+            else:
+                area_reward = 0.0
+            area_reward *= self.args.area_reward_coeff
             m_reward = area_reward
             reward_components['area_reward'] = area_reward
 
@@ -571,9 +579,22 @@ class Exploration_Env(habitat.RLEnv):
             goal_x, goal_y = self.global_goal_m
             dist = sqrt( (curr_x - goal_x)**2 + (curr_y - goal_y)**2 )
             window_size_m = (self.map_size_cm / 100.0) / self.args.global_downscaling
-            dist_penalty = - exp( 2*(dist / window_size_m) ) * self.args.goal_dist_coeff
+            dist_penalty = - min(dist / window_size_m, 1) * self.args.goal_dist_coeff
             m_reward += dist_penalty
             reward_components['dist_penalty'] = dist_penalty
+
+        # Constant time penalty to encourage faster completion
+        time_penalty = self.args.time_penalty
+        m_reward += time_penalty
+        reward_components['time_penalty'] = time_penalty
+
+        # Terminal bonus when coverage exceeds 95%
+        if self.accumulated_ratio + new_area_ratio >= self.args.finish_ratio:
+            finish_bonus = self.args.finish_bonus
+        else:
+            finish_bonus = 0.0
+        m_reward += finish_bonus
+        reward_components['finish_bonus'] = finish_bonus
 
         return m_reward, new_area_ratio, reward_components
 
