@@ -40,15 +40,9 @@ class PPO():
     def update(self, rollouts):
         advantages = rollouts.returns[:-1] - rollouts.value_preds[:-1]
 
-        # Compute normalization stats over valid (non-after-done) samples
-        # only, mirroring the filter in `feed_forward_generator`. The env
-        # has no per-env auto-reset, so post-termination rewards (e.g.
-        # finish_bonus refiring) would otherwise bias the running mean/std
-        # and dilute the gradient on valid samples.
+
         masks_slice = rollouts.masks[:-1]
-        after_done = torch.zeros_like(masks_slice, dtype=torch.bool)
-        if masks_slice.size(0) > 1:
-            after_done[1:] = (masks_slice[1:] == 0) & (masks_slice[:-1] == 0)
+        after_done = masks_slice == 0
         valid = ~after_done
         valid_adv = advantages[valid]
         advantages = (advantages - valid_adv.mean()) / (valid_adv.std() + 1e-5)

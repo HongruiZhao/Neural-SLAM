@@ -90,16 +90,8 @@ class RolloutStorage(object):
 
     def feed_forward_generator(self, advantages, num_mini_batch):
 
-        num_steps = self.rewards.size(0)
-
-        # A sample (t, i) is "after done" when masks[t, i] == 0 AND
-        # masks[t-1, i] == 0 — the environment was already done at the prior
-        # step, so this transition contains no real experience and must be
-        # excluded from PPO training.
-        masks_slice = self.masks[:-1] 
-        after_done = torch.zeros_like(masks_slice, dtype=torch.bool)
-        if num_steps > 1:
-            after_done[1:] = (masks_slice[1:] == 0) & (masks_slice[:-1] == 0)
+        masks_slice = self.masks[:-1]
+        after_done = masks_slice == 0
         valid_mask = (~after_done).view(-1) # ~ flip 0 to 1
         valid_indices = torch.nonzero(valid_mask, as_tuple=False).view(-1)
 

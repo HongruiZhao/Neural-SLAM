@@ -82,6 +82,10 @@ class GlobalPolicyHandler:
         # episode ends so subsequent post-termination rewards are ignored.
         self.episode_done = np.zeros(num_scenes, dtype=bool)
 
+        self.finished_reward_snapshots = np.zeros(num_scenes)
+        self.finished_ratio_snapshots = np.zeros(num_scenes)
+        self.finished_step_snapshots = np.full(num_scenes, args.max_episode_length, dtype=np.int64)
+
 
     def load_model(self, path: str):
         """
@@ -117,6 +121,9 @@ class GlobalPolicyHandler:
         self.accumulated_ratio.fill(0.)
         self.g_value_history = [[] for _ in range(self.num_scenes)]
         self.episode_done.fill(False)
+        self.finished_reward_snapshots.fill(0.)
+        self.finished_ratio_snapshots.fill(0.)
+        self.finished_step_snapshots.fill(self.args.max_episode_length)
 
 
     def log_value(self, step: int):
@@ -211,18 +218,20 @@ class GlobalPolicyHandler:
             obs[:,0] = obs[:,1]
             obs[:,4] = obs[:,5]
 
+
         self.g_rollouts.insert(
             obs, self.g_rec_states, self.g_action, self.g_action_log_prob,
             self.g_value, rewards, self.g_masks, extras
         )
         self.g_masks = torch.ones(self.num_scenes).float().to(self.device)
 
-    def process_rewards(self, infos: list, ep_num: int):
+    def process_rewards(self, infos: list, ep_num: int, step: int):
         """
         Process and log rewards and area coverage metrics.
         Args:
             infos: Environment information.
             ep_num: Current episode number.
+            step: Current per-episode step index (used to record finish step).
         Returns:
             Global reward tensor.
         """
@@ -232,10 +241,6 @@ class GlobalPolicyHandler:
         )
         g_reward = torch.from_numpy(g_reward_np).float().to(self.device)
 
-        # An env's rewards are valid only until the FIRST done=True within an
-        # outer episode. There is no per-env auto-reset, so post-termination
-        # steps keep producing rewards (notably finish_bonus refires every
-        # global step). Use a sticky `episode_done` flag to ignore them.
         active_mask = ~self.episode_done
         g_masks_np = self.g_masks.cpu().numpy()
         just_finished = active_mask & (g_masks_np == 0)
@@ -257,20 +262,19 @@ class GlobalPolicyHandler:
                 if comps is not None and key in comps:
                     component_values.append(comps[key])
             if len(component_values) > 0:
-                self.logger.log(
-                    f'reward components per global step (avg over envs)/{key}',
-                    np.mean(component_values),
-                )
+                if key == 'finish_bonus':
+                    self.logger.log(
+                        f'reward components per global step (avg over envs)/{key}',
+                        np.sum(component_values),
+                    )
+                else:
+                    self.logger.log(
+                        f'reward components per global step (avg over envs)/{key}',
+                        np.mean(component_values),
+                    )
 
         # Accumulate episode totals only for envs whose rewards are still valid.
         self.g_process_rewards[active_mask] += g_reward_np[active_mask]
-
-        # Per-episode total reward, averaged over envs that JUST finished
-        # (transitioned active -> done in this global step).
-        if just_finished.any():
-            self.logger.log(
-                'reward/ep mean accumulated reward (avg over envs)', self.g_process_rewards[just_finished].mean()
-            )
 
         # Area coverage.
         exp_ratio = np.asarray(
@@ -290,16 +294,36 @@ class GlobalPolicyHandler:
             )
             self.uncertainty_list[ep_num].append(uncertainty.tolist())
 
+        # Snapshot per-env totals for envs that JUST finished, so the
+        # end-of-episode summary can combine these with still-active envs'
+        # current accumulators.
         if just_finished.any():
-            self.logger.log(
-                'area coverage/ep mean',
-                self.accumulated_ratio[just_finished].mean(),
-            )
+            self.finished_reward_snapshots[just_finished] = self.g_process_rewards[just_finished]
+            self.finished_ratio_snapshots[just_finished] = self.accumulated_ratio[just_finished]
+            self.finished_step_snapshots[just_finished] = step
 
         # Mark just-finished envs as done so subsequent global steps skip them.
         self.episode_done |= just_finished
 
         return g_reward
+
+
+    def log_episode_summary(self):
+
+        rewards = np.where(
+            self.episode_done, self.finished_reward_snapshots, self.g_process_rewards
+        )
+        ratios = np.where(
+            self.episode_done, self.finished_ratio_snapshots, self.accumulated_ratio
+        )
+        self.logger.log(
+            'reward/ep mean accumulated reward (avg over envs)', rewards.mean()
+        )
+        self.logger.log(
+            'reward/ep mean finish step (avg over envs)',
+            self.finished_step_snapshots.mean(),
+        )
+        self.logger.log('area coverage/ep mean', ratios.mean())
 
 
     def train(self):

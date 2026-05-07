@@ -1,4 +1,5 @@
 import os
+import shutil
 import numpy as np
 import torch
 import torch.nn as nn
@@ -32,7 +33,8 @@ def main():
     if not os.path.exists(dump_dir):
         os.makedirs(dump_dir)
 
-    writer = SummaryWriter("{}/tensorboard/{}/".format(args.dump_location, args.exp_name))
+    tb_dir = "{}/tensorboard/{}/".format(args.dump_location, args.exp_name)
+    writer = SummaryWriter(tb_dir)
     logger = TensorboardLogger(writer, mode=args.log_mode)
 
     num_scenes = args.num_processes
@@ -81,6 +83,7 @@ def main():
         g_handler.log_value(0)
         l_handler.reset()
 
+        #----------- episode loop -----------#
         for step in trange(args.max_episode_length, smoothing=0):
             g_step = (step // args.num_local_steps) % args.num_global_steps
             l_step = step % args.num_local_steps
@@ -115,7 +118,7 @@ def main():
 
             if l_step == args.num_local_steps - 1:
                 global_input, global_orientation = m_handler.get_global_input()
-                g_reward = g_handler.process_rewards(infos, ep_num)
+                g_reward = g_handler.process_rewards(infos, ep_num, step)
                 g_handler.insert_rollout(
                     global_input, g_reward, global_orientation
                 )
@@ -124,13 +127,6 @@ def main():
                 envs.set_global_goals(global_goals_m)
                 
                 g_handler.log_value(step + 1)
-
-            ### TRAINING
-            torch.set_grad_enabled(True)
-            if g_step == args.num_global_steps - 1 and l_step == args.num_local_steps - 1:
-                if args.train_global:
-                    g_handler.train()
-            torch.set_grad_enabled(False)
 
             # logging and save
             if total_num_steps % args.log_interval == 0:
@@ -142,7 +138,17 @@ def main():
                     g_handler.save_model(step_idx, dump_dir)
 
             total_num_steps += 1
-        
+
+        #----------- episode loop -----------#
+
+        # TRAINING
+        if args.train_global and (ep_num + 1) % args.global_update_episode_interval == 0:
+            torch.set_grad_enabled(True)
+            g_handler.train()
+            torch.set_grad_enabled(False)
+
+        g_handler.log_episode_summary()
+
         # generate video out of images when an episode ends
         if args.print_images:
             for scene in range(num_scenes):
@@ -152,6 +158,11 @@ def main():
                 os.system(
                     f"ffmpeg -framerate 30  -i  {img_path} -y {save_path}")
 
+
+    # save at the end of the training
+    step_idx = total_num_steps * num_scenes
+    if args.train_global:
+        g_handler.save_model(step_idx, dump_dir)
 
     if args.eval:
         g_handler.save_results(dump_dir)

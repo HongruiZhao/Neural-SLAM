@@ -143,6 +143,8 @@ def get_args():
                         help='ppo clip parameter (default: 0.2)')
     parser.add_argument('--use_recurrent_global', type=int, default=0,
                         help='use a recurrent global policy')
+    parser.add_argument('--global_update_episode_interval', type=int, default=1,
+                        help='run a global policy update once every N episodes (default: 1)')
     parser.add_argument("--global_arch", type=str,
                     default="NeuralSLAM",
                     help="what architecture to use for global policy.\
@@ -327,5 +329,8 @@ def get_args():
         args.num_mini_batch = int(args.num_mini_batch)
 
     assert args.stuck_limit_no_turns < args.stuck_limit_no_steps
+
+    assert args.num_global_steps * args.num_local_steps == args.max_episode_length, \
+        "num_global_steps * num_local_steps must equal max_episode_length"
 
     return args
